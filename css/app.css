@@ -61,20 +61,19 @@ html, body {
   }
 }
 
-/* Header superior iOS con soporte Safe Areas ampliado (Dynamic Island / Notch) */
+/* Header superior iOS con punto intermedio de altura y Safe Area */
 .ios-header {
-  padding-top: calc(env(safe-area-inset-top, 44px) + 14px);
-  padding-left: max(18px, env(safe-area-inset-left));
-  padding-right: max(18px, env(safe-area-inset-right));
-  padding-bottom: 16px;
-  background: #0f172a; /* Fondo sólido oscuro para máxima legibilidad sin interferencias */
+  padding-top: calc(env(safe-area-inset-top, 44px) + 6px);
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  padding-bottom: 10px;
+  background: #0f172a;
   border-bottom: 1px solid var(--ios-card-border);
   z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 85px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 /* Contenido desplazable responsive */
