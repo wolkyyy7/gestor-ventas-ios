@@ -295,20 +295,17 @@ export class AgentStorage {
   }
 
   /**
-   * Comprueba la versión del catálogo. Si es anterior, reemplaza los datos automáticamente
-   * por los 10 productos exactos solicitados con coste 6.70€ y venta 13.00€.
+   * Comprueba directamente el catálogo. Si contiene productos antiguos (como Camiseta)
+   * o no tiene los nuevos sabores, los reemplaza forzosamente por los 10 sabores oficiales.
    */
   async _checkAndApplyCatalogV2() {
-    const CATALOG_KEY = 'gv_catalog_version';
-    const TARGET_VERSION = 'v2_10_sabores_670_1300';
-    const currentVersion = localStorage.getItem(CATALOG_KEY);
+    const products = await this.getAllProducts();
+    const hasOldProducts = products.some(p => p.name && (p.name.includes('Camiseta') || p.name.includes('Sudadera') || p.name.includes('Taza')));
+    const hasNewProducts = products.some(p => p.name && p.name.includes('Coco Loco'));
 
-    if (currentVersion !== TARGET_VERSION) {
-      console.log('Actualizando catálogo a los 10 sabores configurados...');
+    if (hasOldProducts || !hasNewProducts || products.length !== 10) {
+      console.log('Estableciendo los 10 sabores oficiales...');
       await this.setNewProductCatalog();
-      localStorage.setItem(CATALOG_KEY, TARGET_VERSION);
-    } else {
-      await this._ensureInitialData();
     }
   }
 

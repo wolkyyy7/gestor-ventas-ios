@@ -5,10 +5,10 @@
  * con una interfaz táctil ultra-rápida pensada para iPhone.
  */
 
-import { AgentStorage } from './agents/AgentStorage.js';
-import { AgentInventory } from './agents/AgentInventory.js';
-import { AgentSales } from './agents/AgentSales.js';
-import { AgentAnalytics } from './agents/AgentAnalytics.js';
+import { AgentStorage } from './agents/AgentStorage.js?v=2.2';
+import { AgentInventory } from './agents/AgentInventory.js?v=2.2';
+import { AgentSales } from './agents/AgentSales.js?v=2.2';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=2.2';
 
 class AppController {
   constructor() {
@@ -929,15 +929,15 @@ class AppController {
         <div class="space-y-2 pt-2 border-t border-slate-700/60">
           <button 
             onclick="window.app.resetDemoData()"
-            class="w-full text-xs font-semibold text-amber-400 hover:text-amber-300 py-2.5 px-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-center"
+            class="w-full text-xs font-semibold text-emerald-400 hover:text-emerald-300 py-3 px-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-center flex items-center justify-center gap-1.5"
           >
-            🔄 Restablecer Catálogo de Demostración
+            <span>🔄</span> Cargar Catálogo Oficial (10 Sabores • 6,70€ / 13€)
           </button>
         </div>
       </div>
 
       <div class="text-center text-[11px] text-slate-500 pb-12">
-        Gestor Privado de Inventario y Ventas v1.0<br/>
+        Gestor Privado de Inventario y Ventas v2.0<br/>
         Arquitectura Modular por Agentes • Diseñado para iOS
       </div>
     `;
@@ -986,12 +986,10 @@ class AppController {
   }
 
   async resetDemoData() {
-    if (confirm('¿Restablecer el catálogo con los datos de ejemplo iniciales?')) {
-      await this.storageAgent.resetToDemo();
-      this._playChime('success');
-      this.showToast('Datos de demostración restablecidos', '🔄');
-      this.renderSettingsView();
-    }
+    await this.storageAgent.setNewProductCatalog();
+    this._playChime('success');
+    this.showToast('¡10 Sabores cargados correctamente!', '✓');
+    this.switchTab('sales');
   }
 
   // ==========================================
@@ -1000,9 +998,17 @@ class AppController {
   setupServiceWorker() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('Service Worker registrado correctamente'))
+        navigator.serviceWorker.register('./sw.js?v=2.2')
+          .then(reg => {
+            console.log('Service Worker registrado correctamente');
+            reg.update();
+          })
           .catch(err => console.log('Registro SW opcional omitido:', err));
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          console.log('Nuevo Service Worker activado. Recargando interfaz...');
+          window.location.reload();
+        });
       });
     }
   }
