@@ -21,7 +21,7 @@ export class AgentStorage {
   async init() {
     if (!this.isIndexedDBSupported) {
       console.warn('AgentStorage: IndexedDB no disponible, usando LocalStorage fallback.');
-      return this._checkAndApplyCatalogV2();
+      return this._ensureInitialData();
     }
 
     return new Promise((resolve, reject) => {
@@ -54,7 +54,7 @@ export class AgentStorage {
 
       request.onsuccess = async (event) => {
         this.db = event.target.result;
-        await this._checkAndApplyCatalogV2();
+        await this._ensureInitialData();
         resolve(this);
       };
 
@@ -294,20 +294,7 @@ export class AgentStorage {
     return true;
   }
 
-  /**
-   * Comprueba directamente el catálogo. Si contiene productos antiguos (como Camiseta)
-   * o no tiene los nuevos sabores, los reemplaza forzosamente por los 10 sabores oficiales.
-   */
-  async _checkAndApplyCatalogV2() {
-    const products = await this.getAllProducts();
-    const hasOldProducts = products.some(p => p.name && (p.name.includes('Camiseta') || p.name.includes('Sudadera') || p.name.includes('Taza')));
-    const hasNewProducts = products.some(p => p.name && p.name.includes('Coco Loco'));
 
-    if (hasOldProducts || !hasNewProducts || products.length !== 10) {
-      console.log('Estableciendo los 10 sabores oficiales...');
-      await this.setNewProductCatalog();
-    }
-  }
 
   /**
    * Establece el catálogo exacto de los 10 productos con 10 unidades cada uno.
