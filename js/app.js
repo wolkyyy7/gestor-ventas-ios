@@ -23,7 +23,8 @@ class AppController {
     this.selectedProductForSale = null;
     this.saleQuantity = 1;
     this.saleUnitPrice = 0;
-    this.salePaymentMethod = 'Tarjeta';
+    this.salePaymentMethod = 'Efectivo'; // Efectivo como principal por defecto
+    this.lastCompletedSale = null; // Para deshacer y repetir rápido
     this.editingProductId = null;
     this.inventorySearchQuery = '';
     this.salesSearchQuery = '';
@@ -217,22 +218,53 @@ class AppController {
 
     let html = `
       <div class="mb-4">
-        <!-- Buscador rápido -->
-        <div class="relative mb-3">
-          <input 
-            type="text" 
-            id="salesSearchInput" 
-            value="${this.salesSearchQuery || ''}"
-            placeholder="🔍 Buscar producto para cobrar..." 
-            class="w-full bg-slate-800/90 text-white placeholder-slate-400 px-4 py-3 rounded-xl border border-slate-700/60 focus:outline-none focus:border-emerald-500 text-sm"
-          />
-          ${this.salesSearchQuery ? `
-            <button id="btnClearSalesSearch" class="absolute right-3 top-2.5 text-slate-400 hover:text-white text-lg">✕</button>
-          ` : ''}
+        <!-- Banner de Deshacer / Repetir Última Venta -->
+        ${this.lastCompletedSale ? `
+          <div class="ios-card bg-emerald-950/40 border border-emerald-500/50 p-3 mb-3 flex items-center justify-between animate-fade-in shadow-lg">
+            <div class="pr-2">
+              <div class="flex items-center gap-1.5 mb-0.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+                <span class="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">Última Venta: ${this.lastCompletedSale.paymentMethod}</span>
+              </div>
+              <div class="text-xs font-bold text-white leading-tight">
+                ${this.lastCompletedSale.quantity}x ${this.lastCompletedSale.productName} • ${this.lastCompletedSale.grossTotal.toFixed(2)}€
+              </div>
+              <div class="text-[10px] text-emerald-400 font-medium">Beneficio: +${this.lastCompletedSale.netProfit.toFixed(2)}€</div>
+            </div>
+            <button 
+              onclick="window.app.undoAndRepeatSale('${this.lastCompletedSale.id}')"
+              class="btn-pressable bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/50 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1"
+            >
+              <span>↩</span> Deshacer
+            </button>
+          </div>
+        ` : ''}
+
+        <!-- Buscador rápido y Botón de Historial / Anular -->
+        <div class="flex items-center gap-2 mb-3">
+          <div class="relative flex-1">
+            <input 
+              type="text" 
+              id="salesSearchInput" 
+              value="${this.salesSearchQuery || ''}"
+              placeholder="🔍 Buscar sabor para cobrar..." 
+              class="w-full bg-slate-800/90 text-white placeholder-slate-400 px-4 py-2.5 rounded-xl border border-slate-700/60 focus:outline-none focus:border-emerald-500 text-sm"
+            />
+            ${this.salesSearchQuery ? `
+              <button id="btnClearSalesSearch" class="absolute right-3 top-2 text-slate-400 hover:text-white text-base">✕</button>
+            ` : ''}
+          </div>
+          <button 
+            onclick="window.app.openSalesHistoryModal()"
+            class="btn-pressable bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shadow-sm"
+            title="Ver y cancelar ventas anteriores"
+          >
+            <span>↩</span> Historial
+          </button>
         </div>
 
         <div class="flex items-center justify-between text-xs text-slate-400 px-1 mb-2">
-          <span>Toca un producto para registrar la venta</span>
+          <span>Toca un sabor para cobrar</span>
           <span class="font-medium text-emerald-400">${products.length} disponibles</span>
         </div>
       </div>
@@ -315,24 +347,35 @@ class AppController {
   }
 
   // Bottom Sheet Modal: Preparar y Confirmar Venta
-  async openQuickSaleSheet(productId) {
+  async openQuickSaleSheet(productId, prefill = null) {
     const product = await this.inventoryAgent.getProduct(productId);
     if (!product) return;
 
     this.selectedProductForSale = product;
-    this.saleQuantity = 1;
-    this.saleUnitPrice = product.sellPrice;
-    this.salePaymentMethod = 'Tarjeta';
+    if (prefill) {
+      this.saleQuantity = prefill.quantity || 1;
+      this.saleUnitPrice = prefill.finalUnitPrice !== undefined ? prefill.finalUnitPrice : product.sellPrice;
+      this.salePaymentMethod = prefill.paymentMethod || 'Efectivo';
+    } else {
+      this.saleQuantity = 1;
+      this.saleUnitPrice = product.sellPrice;
+      this.salePaymentMethod = 'Efectivo'; // Efectivo como principal por defecto
+    }
 
     const modal = document.getElementById('saleCheckoutModal');
     if (!modal) return;
 
-    this._updateSaleModalPreview();
+    const inputPrice = document.getElementById('modalSalePriceInput');
+    if (inputPrice) {
+      inputPrice.value = this.saleUnitPrice;
+    }
+
+    this._updateSaleModalPreview(false);
     modal.classList.add('active');
     this._playChime('tap');
   }
 
-  _updateSaleModalPreview() {
+  _updateSaleModalPreview(updatePriceInput = false) {
     const p = this.selectedProductForSale;
     if (!p) return;
 
@@ -358,7 +401,12 @@ class AppController {
       modalStock.className = `text-xs ${p.stock <= 3 ? 'text-rose-400 font-semibold' : 'text-slate-400'}`;
     }
     if (inputQty) inputQty.value = qty;
-    if (inputPrice) inputPrice.value = unitPrice.toFixed(2);
+    
+    // Solo modificar el campo de texto de precio si se pide expresamente (evita bugs al teclear)
+    if (inputPrice && updatePriceInput) {
+      inputPrice.value = unitPrice;
+    }
+
     if (displayTotal) displayTotal.textContent = `${totalGross.toFixed(2)}€`;
     if (displayProfit) {
       displayProfit.textContent = `${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(2)}€`;
@@ -379,16 +427,16 @@ class AppController {
       `;
     }
 
-    // Actualizar botones de método de pago
+    // Actualizar botones de método de pago (Efectivo como principal)
     const btnCard = document.getElementById('btnPayCard');
     const btnCash = document.getElementById('btnPayCash');
     if (btnCard && btnCash) {
-      if (this.salePaymentMethod === 'Tarjeta') {
-        btnCard.className = 'flex-1 py-3 px-4 rounded-xl border-2 border-indigo-500 bg-indigo-500/20 text-white font-semibold flex items-center justify-center gap-2 transition-all';
-        btnCash.className = 'flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium flex items-center justify-center gap-2 transition-all';
-      } else {
+      if (this.salePaymentMethod === 'Efectivo') {
         btnCash.className = 'flex-1 py-3 px-4 rounded-xl border-2 border-emerald-500 bg-emerald-500/20 text-white font-semibold flex items-center justify-center gap-2 transition-all';
         btnCard.className = 'flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium flex items-center justify-center gap-2 transition-all';
+      } else {
+        btnCard.className = 'flex-1 py-3 px-4 rounded-xl border-2 border-indigo-500 bg-indigo-500/20 text-white font-semibold flex items-center justify-center gap-2 transition-all';
+        btnCash.className = 'flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium flex items-center justify-center gap-2 transition-all';
       }
     }
   }
@@ -396,7 +444,7 @@ class AppController {
   setSalePaymentMethod(method) {
     this.salePaymentMethod = method;
     this._playChime('tap');
-    this._updateSaleModalPreview();
+    this._updateSaleModalPreview(false);
   }
 
   changeSaleQuantity(delta) {
@@ -404,15 +452,36 @@ class AppController {
     const next = Math.max(1, current + delta);
     this.saleQuantity = next;
     this._playChime('tap');
-    this._updateSaleModalPreview();
+    this._updateSaleModalPreview(false);
   }
 
   setSaleUnitPrice(value) {
     const val = parseFloat(value);
     if (!isNaN(val) && val >= 0) {
       this.saleUnitPrice = val;
-      this._updateSaleModalPreview();
+    } else if (value === '' || value === '0') {
+      this.saleUnitPrice = 0;
     }
+    // No alterar inputPrice mientras el usuario teclea
+    this._updateSaleModalPreview(false);
+  }
+
+  quickAdjustPrice(delta) {
+    const current = parseFloat(this.saleUnitPrice) || 0;
+    const next = Math.max(0, current + delta);
+    this.saleUnitPrice = next;
+    const inputPrice = document.getElementById('modalSalePriceInput');
+    if (inputPrice) inputPrice.value = next;
+    this._playChime('tap');
+    this._updateSaleModalPreview(false);
+  }
+
+  setPresetPrice(price) {
+    this.saleUnitPrice = price;
+    const inputPrice = document.getElementById('modalSalePriceInput');
+    if (inputPrice) inputPrice.value = price;
+    this._playChime('tap');
+    this._updateSaleModalPreview(false);
   }
 
   async confirmExecuteSale() {
@@ -427,6 +496,9 @@ class AppController {
         notes: ''
       });
 
+      // Guardar última venta para poder deshacerla con 1 toque
+      this.lastCompletedSale = result.sale;
+
       // Cerrar modal
       const modal = document.getElementById('saleCheckoutModal');
       if (modal) modal.classList.remove('active');
@@ -438,6 +510,119 @@ class AppController {
       this.updateHeaderQuickStats();
     } catch (err) {
       alert(`Error en la venta: ${err.message}`);
+    }
+  }
+
+  // Cancelar y Deshacer Venta Restaurando Stock y Beneficio
+  async undoAndRepeatSale(saleId) {
+    try {
+      const res = await this.salesAgent.revertSale(saleId);
+      this._playChime('revert');
+      this.showToast('Venta anulada. Stock y beneficio restaurados', '↩️');
+
+      const reverted = res.revertedSale;
+      this.lastCompletedSale = null;
+      this.renderSalesView();
+      this.updateHeaderQuickStats();
+
+      // Volver a abrir el modal de venta para corregir y repetir
+      if (reverted) {
+        await this.openQuickSaleSheet(reverted.productId, {
+          quantity: reverted.quantity,
+          finalUnitPrice: reverted.unitPrice,
+          paymentMethod: reverted.paymentMethod
+        });
+      }
+    } catch (err) {
+      alert(`Error al cancelar la venta: ${err.message}`);
+    }
+  }
+
+  // Modal para ver y cancelar ventas anteriores
+  async openSalesHistoryModal() {
+    const modal = document.getElementById('salesHistoryModal');
+    const content = document.getElementById('salesHistoryModalContent');
+    if (!modal || !content) return;
+
+    const sales = await this.salesAgent.getRecentSales(30);
+
+    if (sales.length === 0) {
+      content.innerHTML = `
+        <div class="text-center py-8 text-slate-400 text-sm">
+          No hay ventas registradas aún.
+        </div>
+      `;
+    } else {
+      content.innerHTML = sales.map(s => {
+        const timeFormatted = new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateFormatted = new Date(s.timestamp).toLocaleDateString([], { day: '2-digit', month: '2-digit' });
+        const isCash = s.paymentMethod === 'Efectivo';
+
+        return `
+          <div class="ios-card bg-slate-900/90 border border-slate-700/60 p-3 mb-2 flex items-center justify-between">
+            <div class="flex-1 pr-2">
+              <div class="flex items-center gap-1.5 mb-1">
+                <span class="badge ${isCash ? 'badge-payment-cash' : 'badge-payment-card'}">
+                  ${isCash ? '💵 Efectivo' : '💳 Tarjeta'}
+                </span>
+                <span class="text-[10px] text-slate-400">${dateFormatted} • ${timeFormatted}</span>
+              </div>
+              <h5 class="text-sm font-bold text-white">${s.productName}</h5>
+              <div class="text-xs text-slate-400">
+                ${s.quantity} x ${s.unitPrice.toFixed(2)}€ = <strong class="text-white">${s.grossTotal.toFixed(2)}€</strong>
+                <span class="text-emerald-400 ml-1.5">(+${s.netProfit.toFixed(2)}€)</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col gap-1 items-end">
+              <button 
+                onclick="window.app.revertSaleFromModal('${s.id}', true)"
+                class="btn-pressable bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap"
+              >
+                ↩ Anular y Repetir
+              </button>
+              <button 
+                onclick="window.app.revertSaleFromModal('${s.id}', false)"
+                class="btn-pressable text-[10px] text-rose-400 hover:text-rose-300 underline"
+              >
+                Solo Anular
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    modal.classList.add('active');
+    this._playChime('tap');
+  }
+
+  async revertSaleFromModal(saleId, repeat = false) {
+    if (!confirm('¿Deseas cancelar esta venta? Se devolverá el stock al inventario y se recalculará el beneficio.')) {
+      return;
+    }
+
+    try {
+      const res = await this.salesAgent.revertSale(saleId);
+      this._playChime('revert');
+      this.showToast('Venta cancelada y stock restaurado', '↩️');
+
+      const modal = document.getElementById('salesHistoryModal');
+      if (modal) modal.classList.remove('active');
+
+      this.lastCompletedSale = null;
+      this.renderSalesView();
+      this.updateHeaderQuickStats();
+
+      if (repeat && res.revertedSale) {
+        await this.openQuickSaleSheet(res.revertedSale.productId, {
+          quantity: res.revertedSale.quantity,
+          finalUnitPrice: res.revertedSale.unitPrice,
+          paymentMethod: res.revertedSale.paymentMethod
+        });
+      }
+    } catch (err) {
+      alert(`Error al anular la venta: ${err.message}`);
     }
   }
 
