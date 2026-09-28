@@ -61,20 +61,20 @@ html, body {
   }
 }
 
-/* Header superior iOS con soporte Safe Areas (Dynamic Island / Notch) */
+/* Header superior iOS con soporte Safe Areas ampliado (Dynamic Island / Notch) */
 .ios-header {
-  padding-top: max(12px, env(safe-area-inset-top));
-  padding-left: max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
-  padding-bottom: 12px;
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  padding-top: calc(env(safe-area-inset-top, 44px) + 14px);
+  padding-left: max(18px, env(safe-area-inset-left));
+  padding-right: max(18px, env(safe-area-inset-right));
+  padding-bottom: 16px;
+  background: #0f172a; /* Fondo sólido oscuro para máxima legibilidad sin interferencias */
   border-bottom: 1px solid var(--ios-card-border);
   z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 85px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 /* Contenido desplazable responsive */
@@ -347,7 +347,7 @@ html, body {
 /* Toast de notificación rápida */
 .toast-notice {
   position: absolute;
-  top: max(20px, env(safe-area-inset-top));
+  top: calc(env(safe-area-inset-top, 44px) + 24px);
   left: 50%;
   transform: translateX(-50%) translateY(-100px);
   background: rgba(15, 23, 42, 0.95);

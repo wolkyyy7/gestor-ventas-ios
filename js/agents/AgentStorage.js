@@ -21,7 +21,7 @@ export class AgentStorage {
   async init() {
     if (!this.isIndexedDBSupported) {
       console.warn('AgentStorage: IndexedDB no disponible, usando LocalStorage fallback.');
-      return this._ensureInitialData();
+      return this._checkAndApplyCatalogV2();
     }
 
     return new Promise((resolve, reject) => {
@@ -54,7 +54,7 @@ export class AgentStorage {
 
       request.onsuccess = async (event) => {
         this.db = event.target.result;
-        await this._ensureInitialData();
+        await this._checkAndApplyCatalogV2();
         resolve(this);
       };
 
@@ -295,124 +295,78 @@ export class AgentStorage {
   }
 
   /**
-   * Si la app se abre por primera vez y no hay productos, carga un catálogo de muestra.
+   * Comprueba la versión del catálogo. Si es anterior, reemplaza los datos automáticamente
+   * por los 10 productos exactos solicitados con coste 6.70€ y venta 13.00€.
    */
-  async _ensureInitialData() {
-    const products = await this.getAllProducts();
-    if (products.length === 0) {
-      const demoProducts = [
-        {
-          id: 'prod_1',
-          name: 'Camiseta Algodón Orgánico',
-          category: 'Ropa',
-          costPrice: 5.50,
-          sellPrice: 18.00,
-          stock: 24,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'prod_2',
-          name: 'Sudadera Premium Capucha',
-          category: 'Ropa',
-          costPrice: 14.00,
-          sellPrice: 38.00,
-          stock: 12,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'prod_3',
-          name: 'Taza Cerámica Hecha a Mano',
-          category: 'Hogar',
-          costPrice: 3.20,
-          sellPrice: 12.00,
-          stock: 18,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'prod_4',
-          name: 'Gorra Ajustable Bordada',
-          category: 'Accesorios',
-          costPrice: 4.80,
-          sellPrice: 16.50,
-          stock: 4, // Stock bajo a propósito para mostrar la alerta visual
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'prod_5',
-          name: 'Bolsa Tote Bag Eco',
-          category: 'Accesorios',
-          costPrice: 1.80,
-          sellPrice: 7.50,
-          stock: 35,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      ];
+  async _checkAndApplyCatalogV2() {
+    const CATALOG_KEY = 'gv_catalog_version';
+    const TARGET_VERSION = 'v2_10_sabores_670_1300';
+    const currentVersion = localStorage.getItem(CATALOG_KEY);
 
-      for (const p of demoProducts) {
-        await this.saveProduct(p);
-      }
-
-      // Cargar un par de ventas de demostración de hoy
-      const now = new Date();
-      const demoSales = [
-        {
-          id: 'sale_demo_1',
-          timestamp: new Date(now.getTime() - 1000 * 60 * 45).toISOString(),
-          productId: 'prod_1',
-          productName: 'Camiseta Algodón Orgánico',
-          costPrice: 5.50,
-          unitPrice: 18.00,
-          quantity: 2,
-          grossTotal: 36.00,
-          totalCost: 11.00,
-          netProfit: 25.00,
-          paymentMethod: 'Tarjeta',
-          notes: 'Venta presencial'
-        },
-        {
-          id: 'sale_demo_2',
-          timestamp: new Date(now.getTime() - 1000 * 60 * 15).toISOString(),
-          productId: 'prod_3',
-          productName: 'Taza Cerámica Hecha a Mano',
-          costPrice: 3.20,
-          unitPrice: 12.00,
-          quantity: 1,
-          grossTotal: 12.00,
-          totalCost: 3.20,
-          netProfit: 8.80,
-          paymentMethod: 'Efectivo',
-          notes: ''
-        }
-      ];
-
-      for (const s of demoSales) {
-        await this.saveSale(s);
-      }
+    if (currentVersion !== TARGET_VERSION) {
+      console.log('Actualizando catálogo a los 10 sabores configurados...');
+      await this.setNewProductCatalog();
+      localStorage.setItem(CATALOG_KEY, TARGET_VERSION);
+    } else {
+      await this._ensureInitialData();
     }
   }
 
   /**
-   * Resetea todos los datos y recarga los de demostración.
+   * Establece el catálogo exacto de los 10 productos con 10 unidades cada uno.
    */
-  async resetToDemo() {
+  async setNewProductCatalog() {
+    const newProducts = [
+      { id: 'flavor_1', name: 'Coco Loco 🥥🌴', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_2', name: 'Strawberry Kiwi 🍓🥝', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_3', name: 'Blueberry Watermelon 🫐🍉', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_4', name: 'Black ice Dragon fruit Strawberry 🫐🧊🐉🍓', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_5', name: 'Love 66 🍈🍉🥭🌿', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_6', name: 'Tropical fruit 🍍🥭🍌🥥', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_7', name: 'Blueberry sour raspberry 🫐🍇🍋', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_8', name: 'Lemon peach passion fruit 🍋🍑🥭', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_9', name: 'Juicy peach ice 🍑💦🧊', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
+      { id: 'flavor_10', name: 'Lemon lime 🍋🍋🟩', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 }
+    ].map(p => ({
+      ...p,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+
     if (this.db) {
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         const tx = this.db.transaction(['products', 'sales'], 'readwrite');
-        tx.objectStore('products').clear();
-        tx.objectStore('sales').clear();
+        const prodStore = tx.objectStore('products');
+        const salesStore = tx.objectStore('sales');
+        prodStore.clear();
+        salesStore.clear(); // Limpiar ventas anteriores para empezar limpio
+        newProducts.forEach(p => prodStore.put(p));
         tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
       });
     } else {
-      localStorage.removeItem('gv_products');
-      localStorage.removeItem('gv_sales');
+      localStorage.setItem('gv_products', JSON.stringify(newProducts));
+      localStorage.setItem('gv_sales', JSON.stringify([]));
     }
-    await this._ensureInitialData();
+
     this._notify('products:changed', { action: 'reset' });
     this._notify('sales:changed', { action: 'reset' });
+  }
+
+  /**
+   * Si la app está vacía, asegura la inserción de los 10 productos.
+   */
+  async _ensureInitialData() {
+    const products = await this.getAllProducts();
+    if (products.length === 0) {
+      await this.setNewProductCatalog();
+    }
+  }
+
+  /**
+   * Resetea el catálogo a los 10 productos oficiales.
+   */
+  async resetToDemo() {
+    await this.setNewProductCatalog();
   }
 }
