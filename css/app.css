@@ -1,0 +1,403 @@
+/* 
+  Estilos Mobile-First y Totalmente Responsive (iPhone 17, iPad, Mac y PC)
+  Inspirados en iOS Human Interface Guidelines y macOS Cupertino.
+*/
+
+:root {
+  --ios-bg: #0b1120;
+  --ios-card-bg: rgba(30, 41, 59, 0.85);
+  --ios-card-border: rgba(255, 255, 255, 0.08);
+  --ios-primary: #10b981; /* Verde esmeralda */
+  --ios-primary-hover: #059669;
+  --ios-accent: #6366f1;  /* Índigo */
+  --ios-text: #f8fafc;
+  --ios-text-secondary: #94a3b8;
+  --ios-danger: #f43f5e;
+  --ios-warning: #f59e0b;
+  --ios-card-radius: 18px;
+  --ios-btn-radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+input, textarea {
+  user-select: auto;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--ios-bg);
+  color: var(--ios-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Contenedor maestro adaptativo: 100% fluido en iPhone 17 y centrado ergonómico en iPad/PC */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  max-width: 100%;
+  margin: 0 auto;
+  position: relative;
+  background-color: #0b1120;
+}
+
+@media (min-width: 1024px) {
+  .app-container {
+    max-width: 1100px;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* Header superior iOS con soporte Safe Areas (Dynamic Island / Notch) */
+.ios-header {
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  padding-bottom: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--ios-card-border);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Contenido desplazable responsive */
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px max(16px, env(safe-area-inset-right)) 100px max(16px, env(safe-area-inset-left));
+}
+
+@media (min-width: 768px) {
+  .app-content {
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-bottom: 110px;
+  }
+}
+
+/* Bottom Tab Bar adaptativa (Barra móvil en iPhone, Pastilla flotante en iPad/PC) */
+.ios-tab-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-top: 1px solid var(--ios-card-border);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-top: 8px;
+  z-index: 50;
+  transition: all 0.3s ease;
+}
+
+@media (min-width: 768px) {
+  .ios-tab-bar {
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    min-width: 480px;
+    max-width: 580px;
+    bottom: 20px;
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    padding-bottom: 8px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+.tab-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  color: var(--ios-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 4px 0;
+}
+
+.tab-btn.active {
+  color: var(--ios-primary);
+  font-weight: 600;
+}
+
+.tab-btn.active svg {
+  transform: scale(1.1);
+  stroke: var(--ios-primary);
+}
+
+.tab-btn svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.2;
+  transition: transform 0.15s ease;
+}
+
+/* Tarjetas Cupertino */
+.ios-card {
+  background: var(--ios-card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--ios-card-border);
+  border-radius: var(--ios-card-radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+@media (min-width: 768px) {
+  .ios-card:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* Botones con respuesta táctil */
+.btn-pressable {
+  transition: transform 0.08s ease, opacity 0.08s ease;
+}
+
+.btn-pressable:active {
+  transform: scale(0.96);
+  opacity: 0.9;
+}
+
+/* Botón principal grande */
+.btn-primary {
+  width: 100%;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 16px;
+  padding: 14px 20px;
+  border-radius: var(--ios-btn-radius);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+}
+
+/* Segmented Control iOS */
+.ios-segmented {
+  display: flex;
+  background: rgba(30, 41, 59, 0.7);
+  border-radius: 12px;
+  padding: 3px;
+  border: 1px solid var(--ios-card-border);
+  margin-bottom: 16px;
+}
+
+.segmented-option {
+  flex: 1;
+  text-align: center;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ios-text-secondary);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  background: transparent;
+}
+
+.segmented-option.active {
+  background: #334155;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Modales adaptativos (Bottom Sheet en móvil, Modal centrado en iPad/PC) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end; /* En móvil sale desde abajo */
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-sheet {
+  background: #1e293b;
+  width: 100%;
+  max-width: 100%;
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  padding: 20px 20px max(24px, env(safe-area-inset-bottom)) 20px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-overlay.active .modal-sheet {
+  transform: translateY(0);
+}
+
+/* Adaptación a Tablet / Desktop */
+@media (min-width: 640px) {
+  .modal-overlay {
+    align-items: center; /* Centrado en pantalla grande */
+    padding: 20px;
+  }
+  .modal-sheet {
+    max-width: 520px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    transform: scale(0.92) translateY(20px);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .modal-overlay.active .modal-sheet {
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Handle del Bottom Sheet */
+.sheet-handle {
+  width: 38px;
+  height: 4px;
+  background: #475569;
+  border-radius: 2px;
+  margin: 0 auto 16px auto;
+}
+
+@media (min-width: 640px) {
+  .sheet-handle {
+    display: none; /* No necesario en ventanas centradas */
+  }
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-low-stock {
+  background: rgba(244, 63, 94, 0.18);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.badge-ok-stock {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.badge-payment-card {
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+}
+
+.badge-payment-cash {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+/* Toast de notificación rápida */
+.toast-notice {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%) translateY(-100px);
+  background: rgba(15, 23, 42, 0.95);
+  color: #ffffff;
+  border: 1px solid var(--ios-primary);
+  padding: 10px 18px;
+  border-radius: 30px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  z-index: 150;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.toast-notice.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+/* Animación de entrada */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* Barra de progreso Tarjeta vs Efectivo */
+.ratio-bar {
+  height: 12px;
+  border-radius: 6px;
+  display: flex;
+  overflow: hidden;
+  background: #334155;
+  margin: 10px 0;
+}
+
+.ratio-segment-card {
+  background: linear-gradient(90deg, #6366f1, #818cf8);
+  transition: width 0.4s ease;
+}
+
+.ratio-segment-cash {
+  background: linear-gradient(90deg, #10b981, #34d399);
+  transition: width 0.4s ease;
+}

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>Gestor de Ventas e Inventario</title>
+  
+  <!-- Optimización iOS Mobile-First y PWA -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Ventas POS">
+  <meta name="theme-color" content="#0b1120">
+  <meta name="format-detection" content="telephone=no">
+
+  <!-- Iconos PWA e iOS -->
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Tailwind CSS CDN para agilidad y responsividad -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            iosBg: '#0b1120',
+            iosCard: '#1e293b',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Estilos Mobile-First y Cupertino Native -->
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="bg-slate-950 text-slate-100">
+
+  <!-- Contenedor Maestro App con Safe Areas -->
+  <div class="app-container">
+
+    <!-- Toast Flotante de Notificaciones -->
+    <div id="toastNotice" class="toast-notice">
+      <span>✓</span>
+      <span>Operación completada</span>
+    </div>
+
+    <!-- Header Superior Estilo iOS -->
+    <header class="ios-header">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-900/40">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold tracking-tight text-white leading-none">Mi Negocio</h1>
+          <span class="text-[10px] text-slate-400">Panel Rápido</span>
+        </div>
+      </div>
+
+      <!-- Resumen Hoy en vivo en la cabecera -->
+      <div class="flex flex-col items-end">
+        <div class="flex items-center gap-1.5">
+          <span class="text-[11px] text-slate-400">Hoy:</span>
+          <span id="headerTodayRevenue" class="text-xs font-bold text-white">0.00€</span>
+        </div>
+        <span id="headerTodayProfit" class="text-[10px] text-emerald-400 font-semibold">+0.00€ benef.</span>
+      </div>
+    </header>
+
+    <!-- Contenido Scrollable de las Pestañas -->
+    <main class="app-content">
+
+      <!-- PESTAÑA 1: VENTA RÁPIDA -->
+      <section id="view-sales" class="tab-view animate-fade-in">
+        <!-- Renderizado dinámico por app.js -->
+      </section>
+
+      <!-- PESTAÑA 2: INVENTARIO -->
+      <section id="view-inventory" class="tab-view hidden animate-fade-in">
+        <!-- Renderizado dinámico por app.js -->
+      </section>
+
+      <!-- PESTAÑA 3: ANALÍTICA Y MÉTRICAS -->
+      <section id="view-analytics" class="tab-view hidden animate-fade-in">
+        <!-- Renderizado dinámico por app.js -->
+      </section>
+
+      <!-- PESTAÑA 4: AJUSTES Y RESPALDO -->
+      <section id="view-settings" class="tab-view hidden animate-fade-in">
+        <!-- Renderizado dinámico por app.js -->
+      </section>
+
+    </main>
+
+    <!-- Bottom Tab Bar (iOS Native Style) -->
+    <nav class="ios-tab-bar">
+      <!-- Botón 1: Venta Rápida -->
+      <button class="tab-btn active" data-tab="sales">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        <span>Vender</span>
+      </button>
+
+      <!-- Botón 2: Inventario -->
+      <button class="tab-btn" data-tab="inventory">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+        </svg>
+        <span>Inventario</span>
+      </button>
+
+      <!-- Botón 3: Métricas -->
+      <button class="tab-btn" data-tab="analytics">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        <span>Métricas</span>
+      </button>
+
+      <!-- Botón 4: Ajustes -->
+      <button class="tab-btn" data-tab="settings">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 1: CHECKOUT RÁPIDO DE VENTA (BOTTOM SHEET)               -->
+    <!-- ============================================================= -->
+    <div id="saleCheckoutModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <h3 id="modalSaleProductName" class="text-lg font-bold text-white leading-tight">Producto</h3>
+            <span id="modalSaleStockBadge" class="text-xs text-slate-400">10 disponibles</span>
+          </div>
+          <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+        </div>
+
+        <!-- Selector de Cantidad táctil grande -->
+        <div class="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-700/60 mb-3">
+          <label class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-2">Cantidad de Unidades</label>
+          <div class="flex items-center justify-between gap-4">
+            <button 
+              type="button" 
+              onclick="window.app.changeSaleQuantity(-1)"
+              class="btn-pressable w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-2xl flex items-center justify-center border border-slate-600/40"
+            >-</button>
+            <input 
+              type="number" 
+              id="modalSaleQtyInput" 
+              value="1" 
+              min="1" 
+              class="w-20 text-center text-3xl font-black text-white bg-transparent border-0 focus:outline-none"
+              onchange="window.app.changeSaleQuantity(parseInt(this.value, 10) - window.app.saleQuantity)"
+            />
+            <button 
+              type="button" 
+              onclick="window.app.changeSaleQuantity(1)"
+              class="btn-pressable w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-2xl flex items-center justify-center border border-slate-600/40"
+            >+</button>
+          </div>
+        </div>
+
+        <!-- Precio Final y Descuentos al vuelo -->
+        <div class="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-700/60 mb-3 flex items-center justify-between">
+          <div>
+            <label class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Precio Final Unitario</label>
+            <span class="text-[10px] text-slate-500">Modificable para descuentos</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <input 
+              type="number" 
+              step="0.01" 
+              id="modalSalePriceInput" 
+              class="w-24 text-right bg-slate-800 text-white font-bold text-lg px-2.5 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:border-emerald-500"
+              oninput="window.app.setSaleUnitPrice(this.value)"
+            />
+            <span class="text-white font-bold">€</span>
+          </div>
+        </div>
+
+        <!-- Método de Pago -->
+        <div class="mb-4">
+          <label class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-2">Método de Pago</label>
+          <div class="flex gap-2">
+            <button 
+              type="button" 
+              id="btnPayCard" 
+              onclick="window.app.setSalePaymentMethod('Tarjeta')"
+              class="flex-1 py-3 px-4 rounded-xl border-2 border-indigo-500 bg-indigo-500/20 text-white font-semibold flex items-center justify-center gap-2"
+            >
+              <span class="text-lg">💳</span> Tarjeta
+            </button>
+            <button 
+              type="button" 
+              id="btnPayCash" 
+              onclick="window.app.setSalePaymentMethod('Efectivo')"
+              class="flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium flex items-center justify-center gap-2"
+            >
+              <span class="text-lg">💵</span> Efectivo
+            </button>
+          </div>
+        </div>
+
+        <!-- Resumen Financiero en Tiempo Real -->
+        <div class="bg-slate-800/50 p-3.5 rounded-2xl border border-slate-700/40 mb-4 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] text-slate-400">Total a Cobrar</div>
+            <div id="modalSaleTotalGross" class="text-2xl font-black text-white">0.00€</div>
+          </div>
+          <div class="text-right">
+            <div class="text-[11px] text-slate-400">Beneficio Neto</div>
+            <div id="modalSaleNetProfit" class="text-lg font-bold text-emerald-400">+0.00€</div>
+            <div class="text-[10px] text-slate-500">Quedarán: <span id="modalSaleRemainingStock" class="font-medium">--</span></div>
+          </div>
+        </div>
+
+        <!-- Botón Gigante de Cobrar -->
+        <button 
+          id="btnConfirmExecuteSale" 
+          onclick="window.app.confirmExecuteSale()"
+          class="btn-primary btn-pressable"
+        >
+          <span>Cobrar Venta</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 2: AÑADIR / EDITAR PRODUCTO (BOTTOM SHEET)               -->
+    <!-- ============================================================= -->
+    <div id="productFormModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="productModalTitle" class="text-lg font-bold text-white">Nuevo Producto</h3>
+          <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); window.app.saveProductFromModal();" class="space-y-3">
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Nombre del Producto *</label>
+            <input 
+              type="text" 
+              id="inputProdName" 
+              required 
+              placeholder="Ej: Camiseta Negra Talla L" 
+              class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Categoría</label>
+            <input 
+              type="text" 
+              id="inputProdCategory" 
+              placeholder="Ej: Ropa, Accesorios, Hogar..." 
+              class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Precio de Coste (€) *</label>
+              <input 
+                type="number" 
+                step="0.01" 
+                id="inputProdCost" 
+                required 
+                placeholder="0.00" 
+                class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+              />
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">PVP Habitual (€) *</label>
+              <input 
+                type="number" 
+                step="0.01" 
+                id="inputProdSell" 
+                required 
+                placeholder="0.00" 
+                class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Stock Inicial Disponible *</label>
+            <input 
+              type="number" 
+              id="inputProdStock" 
+              required 
+              placeholder="10" 
+              class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+            />
+          </div>
+
+          <div class="pt-3 space-y-2">
+            <button type="submit" class="btn-primary btn-pressable">
+              <span>Guardar Producto</span>
+            </button>
+            
+            <button 
+              type="button" 
+              id="btnDeleteProduct" 
+              onclick="window.app.deleteCurrentProduct()"
+              class="w-full py-2.5 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-xl border border-rose-900/40 bg-rose-950/20 text-center hidden"
+            >
+              Eliminar Producto del Catálogo
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Inicialización modular mediante ES Modules -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

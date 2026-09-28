@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary or local testing files
+test_app.py
+*.log
+
+# Deploy archives
+*.zip
