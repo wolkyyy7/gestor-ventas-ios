@@ -6,14 +6,14 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.2';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.2';
-import { AgentSales } from './agents/AgentSales.js?v=4.2';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.2';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.2';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.2';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.2';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.2';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.3';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.3';
+import { AgentSales } from './agents/AgentSales.js?v=4.3';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.3';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.3';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.3';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.3';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.3';
 
 class AppController {
   constructor() {
@@ -827,7 +827,7 @@ class AppController {
 
     const qty = parseInt(this.saleQuantity, 10) || 1;
     const unitPrice = parseFloat(this.saleUnitPrice) || 0;
-    const catalogPrice = parseFloat(p.sellPrice) || 13.00;
+    const catalogPrice = parseFloat(p.sellPrice) || 12.00;
     const discountTotal = Math.max(0, parseFloat(((catalogPrice - unitPrice) * qty).toFixed(2)));
     const totalGross = parseFloat((unitPrice * qty).toFixed(2));
     const totalCost = parseFloat(((p.costPrice || 0) * qty).toFixed(2));
@@ -2441,7 +2441,7 @@ class AppController {
     ]);
 
     const totalResUnits = reservations.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
-    const totalResValue = reservations.reduce((sum, r) => sum + ((parseInt(r.quantity, 10) || 0) * (parseFloat(r.agreedUnitPrice) || 13)), 0);
+    const totalResValue = reservations.reduce((sum, r) => sum + ((parseInt(r.quantity, 10) || 0) * (parseFloat(r.agreedUnitPrice) || 12)), 0);
 
     return `
       <div class="ios-card border-purple-500/40 bg-gradient-to-br from-purple-950/35 to-slate-900 mb-4 animate-fade-in">
@@ -2492,7 +2492,7 @@ class AppController {
             ${reservations.map(r => {
               const dt = new Date(r.createdAt);
               const dateStr = dt.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
-              const totalVal = ((parseInt(r.quantity, 10) || 0) * (parseFloat(r.agreedUnitPrice) || 13)).toFixed(2);
+              const totalVal = ((parseInt(r.quantity, 10) || 0) * (parseFloat(r.agreedUnitPrice) || 12)).toFixed(2);
               return `
                 <div class="bg-slate-900/90 p-3 rounded-2xl border border-purple-500/35 flex flex-wrap items-center justify-between gap-2">
                   <div class="min-w-0 flex-1">
@@ -2503,7 +2503,7 @@ class AppController {
                     </div>
                     <div class="text-sm font-bold text-white">${this._escapeHtml(r.productName)}</div>
                     <div class="text-xs text-slate-300 mt-0.5">
-                      <strong>${r.quantity} uds</strong> × ${parseFloat(r.agreedUnitPrice || 13).toFixed(2)}€ = <strong class="text-emerald-400">${totalVal}€</strong>
+                      <strong>${r.quantity} uds</strong> × ${parseFloat(r.agreedUnitPrice || 12).toFixed(2)}€ = <strong class="text-emerald-400">${totalVal}€</strong>
                     </div>
                     ${r.notes ? `<div class="text-[11px] text-slate-400 mt-0.5">📝 ${this._escapeHtml(r.notes)}</div>` : ''}
                   </div>
@@ -2581,7 +2581,7 @@ class AppController {
 
     if (custInput) custInput.value = '';
     if (qtyInput) qtyInput.value = 1;
-    if (priceInput) priceInput.value = '13.00';
+    if (priceInput) priceInput.value = '12.00';
     if (notesInput) notesInput.value = '';
 
     if (activeListEl) {
@@ -2592,7 +2592,7 @@ class AppController {
           <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between gap-2 text-xs">
             <div class="min-w-0 flex-1">
               <div class="font-bold text-purple-300 truncate">👤 ${this._escapeHtml(r.customerName)} • ${r.quantity}x ${this._escapeHtml(r.productName)}</div>
-              <div class="text-[10px] text-slate-400">${this._escapeHtml(r.warehouseName)} • ${(r.quantity * (r.agreedUnitPrice || 13)).toFixed(2)}€</div>
+              <div class="text-[10px] text-slate-400">${this._escapeHtml(r.warehouseName)} • ${(r.quantity * (r.agreedUnitPrice || 12)).toFixed(2)}€</div>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
               <button type="button" onclick="window.app.completeReservationQuick('${r.id}', 'Efectivo', true)" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💵 Cobrar</button>
@@ -2647,7 +2647,7 @@ class AppController {
       : (document.getElementById('resModalWarehouseSelect')?.value || MAIN_WAREHOUSE_ID);
     const productId = document.getElementById('resModalProductSelect')?.value || '';
     const quantity = parseInt(document.getElementById('resModalQtyInput')?.value, 10) || 1;
-    const agreedUnitPrice = parseFloat(document.getElementById('resModalPriceInput')?.value) || 13.00;
+    const agreedUnitPrice = parseFloat(document.getElementById('resModalPriceInput')?.value) || 12.00;
     const notes = document.getElementById('resModalNotesInput')?.value || '';
 
     try {
@@ -3043,7 +3043,7 @@ class AppController {
       if (nameInput) nameInput.value = '';
       if (catInput) catInput.value = 'Sabores';
       if (costInput) costInput.value = '6.70';
-      if (sellInput) sellInput.value = '13.00';
+      if (sellInput) sellInput.value = '12.00';
       if (btnDelete) btnDelete.classList.add('hidden');
       const targetDefaultWh = (this.selectedInventoryWarehouse && this.selectedInventoryWarehouse !== 'all')
         ? this.selectedInventoryWarehouse
@@ -4000,7 +4000,7 @@ class AppController {
                   <div class="min-w-0 flex-1">
                     <div class="font-bold text-white truncate">👤 ${this._escapeHtml(r.customerName)} • ${r.quantity}x ${this._escapeHtml(r.productName)}</div>
                     <div class="text-[10px] text-slate-400">
-                      ${this._escapeHtml(r.warehouseName)} • ${(r.quantity * (r.agreedUnitPrice || 13)).toFixed(2)}€
+                      ${this._escapeHtml(r.warehouseName)} • ${(r.quantity * (r.agreedUnitPrice || 12)).toFixed(2)}€
                       ${r.notes ? ` • 📝 ${this._escapeHtml(r.notes)}` : ''}
                     </div>
                   </div>
@@ -4028,7 +4028,7 @@ class AppController {
               <span>🏷️</span> Control de Descuentos y Precio Medio por Trabajador
             </h3>
             <p class="text-[11px] text-slate-400">
-              Detecta cuánto beneficio se escapa por rebajas respecto al PVP oficial (13,00€)
+              Detecta cuánto beneficio se escapa por rebajas respecto al PVP oficial (12,00€)
             </p>
           </div>
           <span class="badge ${dm.allTimeTotalDiscount > 0 ? 'badge-fiado' : 'badge-ok-stock'} text-[10px]">
@@ -4064,7 +4064,7 @@ class AppController {
                 </div>
               </div>
               <div class="text-right flex-shrink-0">
-                <div class="text-xs font-black ${w.avgRealUnitPrice < 12.5 ? 'text-amber-400' : 'text-emerald-400'}">
+                <div class="text-xs font-black ${w.avgRealUnitPrice < 11.5 ? 'text-amber-400' : 'text-emerald-400'}">
                   Media: ${w.avgRealUnitPrice.toFixed(2)}€/ud
                 </div>
                 <div class="text-[10px] text-slate-400">Desc: -${w.totalDiscountGiven.toFixed(2)}€</div>
@@ -5638,7 +5638,7 @@ class AppController {
             onclick="window.app.resetDemoData()"
             class="w-full text-xs font-semibold text-emerald-400 hover:text-emerald-300 py-3 px-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-center flex items-center justify-center gap-1.5"
           >
-            <span>🔄</span> Reiniciar Catálogo Oficial (10 Sabores • 6,70€ / 13€)
+            <span>🔄</span> Reiniciar Catálogo Oficial (10 Sabores • 6,70€ / 12€)
           </button>
         </div>
       </div>
@@ -6047,9 +6047,9 @@ class AppController {
   setupServiceWorker() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=4.2')
+        navigator.serviceWorker.register('./sw.js?v=4.3')
           .then(reg => {
-            console.log('Service Worker v4.2 registrado correctamente');
+            console.log('Service Worker v4.3 registrado correctamente');
             reg.update();
           })
           .catch(err => console.log('Registro SW opcional omitido:', err));

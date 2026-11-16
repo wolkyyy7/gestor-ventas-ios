@@ -55,7 +55,7 @@ export class AgentAnalytics {
         (sum, v) => sum + (Math.max(0, parseInt(v, 10) || 0)),
         0
       );
-      productPriceMap.set(copy.id, parseFloat(copy.sellPrice) || 13.00);
+      productPriceMap.set(copy.id, parseFloat(copy.sellPrice) || 12.00);
       return copy;
     });
 
@@ -560,7 +560,7 @@ export class AgentAnalytics {
       const unitPrice = parseFloat(sale.unitPrice) || 0;
       const catPrice = sale.catalogUnitPrice !== undefined
         ? parseFloat(sale.catalogUnitPrice)
-        : (productPriceMap.get(sale.productId) || 13.00);
+        : (productPriceMap.get(sale.productId) || 12.00);
       const discPerUnit = Math.max(0, catPrice - unitPrice);
       const totalDisc = parseFloat((discPerUnit * qty).toFixed(2));
       const theoretical = parseFloat((catPrice * qty).toFixed(2));
@@ -632,8 +632,8 @@ export class AgentAnalytics {
         }
       });
 
-      const avgRealUnitPrice = whUnits > 0 ? parseFloat((whBilled / whUnits).toFixed(2)) : 13.00;
-      const avgCatalogUnitPrice = whUnits > 0 ? parseFloat((whTheoretical / whUnits).toFixed(2)) : 13.00;
+      const avgRealUnitPrice = whUnits > 0 ? parseFloat((whBilled / whUnits).toFixed(2)) : 12.00;
+      const avgCatalogUnitPrice = whUnits > 0 ? parseFloat((whTheoretical / whUnits).toFixed(2)) : 12.00;
       const discountedSalesPct = whSales.length > 0
         ? parseFloat(((discountedSalesCount / whSales.length) * 100).toFixed(1))
         : 0;
@@ -729,7 +729,7 @@ export class AgentAnalytics {
 
     activeReservations.forEach(r => {
       const qty = parseInt(r.quantity, 10) || 0;
-      const price = parseFloat(r.agreedUnitPrice) || 13.00;
+      const price = parseFloat(r.agreedUnitPrice) || 12.00;
       totalReservedUnits += qty;
       totalReservedValue += qty * price;
     });

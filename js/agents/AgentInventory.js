@@ -343,7 +343,7 @@ export class AgentInventory {
 
     const parsedPrice = (agreedUnitPrice !== null && agreedUnitPrice !== '' && !isNaN(parseFloat(agreedUnitPrice)))
       ? parseFloat(agreedUnitPrice)
-      : (parseFloat(product.sellPrice) || 13.00);
+      : (parseFloat(product.sellPrice) || 12.00);
 
     const reservation = await this.storage.saveReservation({
       productId: product.id,

@@ -34,7 +34,7 @@
   </script>
 
   <!-- Estilos Mobile-First y Cupertino iOS 18 Glassmorphism -->
-  <link rel="stylesheet" href="css/app.css?v=4.2">
+  <link rel="stylesheet" href="css/app.css?v=4.3">
 </head>
 <body class="bg-slate-950 text-slate-100">
 
@@ -227,8 +227,8 @@
             <div class="flex gap-1">
               <button type="button" onclick="window.app.quickAdjustPrice(-1)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">-1€</button>
               <button type="button" onclick="window.app.setPresetPrice(10)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">10€</button>
-              <button type="button" onclick="window.app.setPresetPrice(12)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">12€</button>
-              <button type="button" onclick="window.app.setPresetPrice(13)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">13€</button>
+              <button type="button" onclick="window.app.setPresetPrice(11)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">11€</button>
+              <button type="button" onclick="window.app.setPresetPrice(12)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">12€</button>
               <button type="button" onclick="window.app.quickAdjustPrice(1)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">+1€</button>
             </div>
           </div>
@@ -399,7 +399,7 @@
                 step="0.01" 
                 id="inputProdSell" 
                 required 
-                placeholder="13.00" 
+                placeholder="12.00" 
                 class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
               />
             </div>
@@ -759,7 +759,7 @@
                 type="number" 
                 step="any" 
                 id="resModalPriceInput" 
-                value="13.00" 
+                value="12.00" 
                 class="w-full bg-slate-800 text-white font-bold text-center py-1.5 rounded-lg border border-slate-700 text-sm focus:outline-none focus:border-purple-500"
               />
             </div>
@@ -830,6 +830,6 @@
   <!-- SDK oficial de Supabase para Realtime + PostgreSQL en la nube -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- Inicialización modular mediante ES Modules -->
-  <script type="module" src="js/app.js?v=4.2"></script>
+  <script type="module" src="js/app.js?v=4.3"></script>
 </body>
 </html>

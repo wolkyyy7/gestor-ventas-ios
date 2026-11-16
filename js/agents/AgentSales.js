@@ -95,7 +95,7 @@ export class AgentSales {
 
     // 3. Cálculos financieros y de descuentos atómicos
     const costPrice = parseFloat(product.costPrice) || 0;
-    const catalogUnitPrice = parseFloat(product.sellPrice) || 13.00;
+    const catalogUnitPrice = parseFloat(product.sellPrice) || 12.00;
     const discountPerUnit = Math.max(0, parseFloat((catalogUnitPrice - unitPrice).toFixed(2)));
     const totalDiscount = Math.max(0, parseFloat(((catalogUnitPrice - unitPrice) * qty).toFixed(2)));
 
@@ -183,7 +183,7 @@ export class AgentSales {
 
     const unitPrice = (finalUnitPrice !== null && finalUnitPrice !== undefined && finalUnitPrice !== '')
       ? parseFloat(finalUnitPrice)
-      : (parseFloat(res.agreedUnitPrice) || 13.00);
+      : (parseFloat(res.agreedUnitPrice) || 12.00);
 
     const combinedNotes = (notes && notes.trim())
       ? notes.trim()

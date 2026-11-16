@@ -1120,16 +1120,16 @@ export class AgentStorage {
 
     const now = new Date().toISOString();
     const newProducts = [
-      { id: 'flavor_1', name: 'Coco Loco 🥥🌴', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_2', name: 'Strawberry Kiwi 🍓🥝', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_3', name: 'Blueberry Watermelon 🫐🍉', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_4', name: 'Black ice Dragon fruit Strawberry 🫐🧊🐉🍓', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_5', name: 'Love 66 🍈🍉🥭🌿', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_6', name: 'Tropical fruit 🍍🥭🍌🥥', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_7', name: 'Blueberry sour raspberry 🫐🍇🍋', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_8', name: 'Lemon peach passion fruit 🍋🍑🥭', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_9', name: 'Juicy peach ice 🍑💦🧊', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 },
-      { id: 'flavor_10', name: 'Lemon lime 🍋🍋🟩', category: 'Sabores', costPrice: 6.70, sellPrice: 13.00, stock: 10 }
+      { id: 'flavor_1', name: 'Coco Loco 🥥🌴', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_2', name: 'Strawberry Kiwi 🍓🥝', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_3', name: 'Blueberry Watermelon 🫐🍉', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_4', name: 'Black ice Dragon fruit Strawberry 🫐🧊🐉🍓', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_5', name: 'Love 66 🍈🍉🥭🌿', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_6', name: 'Tropical fruit 🍍🥭🍌🥥', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_7', name: 'Blueberry sour raspberry 🫐🍇🍋', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_8', name: 'Lemon peach passion fruit 🍋🍑🥭', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_9', name: 'Juicy peach ice 🍑💦🧊', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_10', name: 'Lemon lime 🍋🍋🟩', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 }
     ].map(p => ({
       ...p,
       stockByWarehouse: { [MAIN_WAREHOUSE_ID]: 10 },
