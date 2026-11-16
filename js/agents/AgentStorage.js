@@ -13,7 +13,7 @@ export const MAIN_WAREHOUSE_ID = 'wh_main';
 export class AgentStorage {
   constructor() {
     this.dbName = 'GestorVentasDB';
-    this.dbVersion = 3;
+    this.dbVersion = 4;
     this.db = null;
     this.isIndexedDBSupported = typeof indexedDB !== 'undefined';
     this.listeners = new Map();
@@ -154,6 +154,13 @@ export class AgentStorage {
           const settlementStore = db.createObjectStore('settlements', { keyPath: 'id' });
           settlementStore.createIndex('timestamp', 'timestamp', { unique: false });
           settlementStore.createIndex('warehouseId', 'warehouseId', { unique: false });
+        }
+
+        // Almacén de Pedidos / Lotes de Mercancía (v4)
+        if (!db.objectStoreNames.contains('orders')) {
+          const orderStore = db.createObjectStore('orders', { keyPath: 'id' });
+          orderStore.createIndex('createdAt', 'createdAt', { unique: false });
+          orderStore.createIndex('status', 'status', { unique: false });
         }
       };
 
@@ -743,6 +750,105 @@ export class AgentStorage {
     this._notify('sales:changed', { action: 'delete', id });
   }
 
+  // ==========================================
+  // MÉTODOS DE PEDIDOS / LOTES DE MERCANCÍA (ORDERS)
+  // ==========================================
+
+  async getAllOrders() {
+    if (this.db) {
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction('orders', 'readonly');
+        const store = tx.objectStore('orders');
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const list = req.result || [];
+          list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+          resolve(list);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } else {
+      const data = localStorage.getItem('gv_orders');
+      const list = data ? JSON.parse(data) : [];
+      list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      return list;
+    }
+  }
+
+  async getOrderById(id) {
+    if (!id) return null;
+    if (this.db) {
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction('orders', 'readonly');
+        const store = tx.objectStore('orders');
+        const req = store.get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    } else {
+      const list = await this.getAllOrders();
+      return list.find(o => o.id === id) || null;
+    }
+  }
+
+  async getActiveOrder() {
+    const orders = await this.getAllOrders();
+    return orders.find(o => o.status === 'active') || orders[0] || null;
+  }
+
+  async saveOrder(order, options = {}) {
+    if (!order.id) {
+      order.id = 'ord_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    }
+    if (!order.createdAt) {
+      order.createdAt = new Date().toISOString();
+    }
+    order.updatedAt = new Date().toISOString();
+
+    if (this.db) {
+      await new Promise((resolve, reject) => {
+        const tx = this.db.transaction('orders', 'readwrite');
+        const store = tx.objectStore('orders');
+        const req = store.put(order);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } else {
+      const list = await this.getAllOrders();
+      const idx = list.findIndex(o => o.id === order.id);
+      if (idx >= 0) list[idx] = order;
+      else list.unshift(order);
+      localStorage.setItem('gv_orders', JSON.stringify(list));
+    }
+
+    if (!options.skipCloudSync) {
+      this._syncCloud(sb => sb.upsertOrder(order));
+    }
+    this._notify('orders:changed', { action: 'save', order });
+    return order;
+  }
+
+  async deleteOrder(id, options = {}) {
+    if (this.db) {
+      await new Promise((resolve, reject) => {
+        const tx = this.db.transaction('orders', 'readwrite');
+        const store = tx.objectStore('orders');
+        const req = store.delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } else {
+      let list = await this.getAllOrders();
+      list = list.filter(o => o.id !== id);
+      localStorage.setItem('gv_orders', JSON.stringify(list));
+    }
+
+    if (!options.skipCloudSync) {
+      this._syncCloud(sb => sb.deleteOrder(id));
+    }
+    this._notify('orders:changed', { action: 'delete', id });
+  }
+
   /**
    * Reemplaza la caché local completa con la información autoritativa descargada de Supabase.
    */
@@ -756,11 +862,12 @@ export class AgentStorage {
     const reservations = remoteData.reservations || [];
     const transfers = remoteData.transfers || [];
     const settlements = remoteData.settlements || [];
+    const orders = remoteData.orders || [];
 
     if (this.db) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
-          ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements'],
+          ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements', 'orders'],
           'readwrite'
         );
         const prodStore = tx.objectStore('products');
@@ -769,6 +876,7 @@ export class AgentStorage {
         const trfStore = tx.objectStore('transfers');
         const resStore = tx.objectStore('reservations');
         const stlStore = tx.objectStore('settlements');
+        const ordStore = tx.objectStore('orders');
 
         prodStore.clear();
         salesStore.clear();
@@ -776,6 +884,7 @@ export class AgentStorage {
         trfStore.clear();
         resStore.clear();
         stlStore.clear();
+        ordStore.clear();
 
         products.forEach(p => prodStore.put(p));
         sales.forEach(s => salesStore.put(s));
@@ -783,6 +892,7 @@ export class AgentStorage {
         transfers.forEach(t => trfStore.put(t));
         reservations.forEach(r => resStore.put(r));
         settlements.forEach(st => stlStore.put(st));
+        orders.forEach(o => ordStore.put(o));
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
@@ -794,6 +904,7 @@ export class AgentStorage {
       localStorage.setItem('gv_transfers', JSON.stringify(transfers));
       localStorage.setItem('gv_reservations', JSON.stringify(reservations));
       localStorage.setItem('gv_settlements', JSON.stringify(settlements));
+      localStorage.setItem('gv_orders', JSON.stringify(orders));
     }
 
     this._notify('warehouses:changed', { action: 'cloud_replace' });
@@ -802,6 +913,7 @@ export class AgentStorage {
     this._notify('reservations:changed', { action: 'cloud_replace' });
     this._notify('transfers:changed', { action: 'cloud_replace' });
     this._notify('settlements:changed', { action: 'cloud_replace' });
+    this._notify('orders:changed', { action: 'cloud_replace' });
     return true;
   }
 
@@ -980,17 +1092,18 @@ export class AgentStorage {
    * Exporta toda la base de datos en un objeto JSON completo descargable (v3.0).
    */
   async exportBackup() {
-    const [products, sales, warehouses, transfers, reservations, settlements] = await Promise.all([
+    const [products, sales, warehouses, transfers, reservations, settlements, orders] = await Promise.all([
       this.getAllProducts(),
       this.getAllSales(),
       this.getAllWarehouses(),
       this.getAllTransfers(),
       this.getAllReservations(),
-      this.getAllSettlements()
+      this.getAllSettlements(),
+      this.getAllOrders()
     ]);
 
     return {
-      version: '3.0',
+      version: '4.0',
       exportedAt: new Date().toISOString(),
       appName: 'GestorInventarioVentas',
       data: {
@@ -999,7 +1112,8 @@ export class AgentStorage {
         warehouses,
         transfers,
         reservations,
-        settlements
+        settlements,
+        orders
       }
     };
   }
@@ -1018,6 +1132,7 @@ export class AgentStorage {
     const rawTransfers = backupData.data.transfers || [];
     const rawReservations = backupData.data.reservations || [];
     const rawSettlements = backupData.data.settlements || [];
+    const rawOrders = backupData.data.orders || [];
 
     const warehouses = rawWarehouses.map(w => this._normalizeWarehouseObject({ ...w }));
     let mainWh = warehouses.find(w => w.id === MAIN_WAREHOUSE_ID);
@@ -1056,7 +1171,7 @@ export class AgentStorage {
     if (this.db) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
-          ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements'],
+          ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements', 'orders'],
           'readwrite'
         );
         const prodStore = tx.objectStore('products');
@@ -1065,6 +1180,7 @@ export class AgentStorage {
         const trfStore = tx.objectStore('transfers');
         const resStore = tx.objectStore('reservations');
         const stlStore = tx.objectStore('settlements');
+        const ordStore = tx.objectStore('orders');
 
         prodStore.clear();
         salesStore.clear();
@@ -1072,6 +1188,7 @@ export class AgentStorage {
         trfStore.clear();
         resStore.clear();
         stlStore.clear();
+        ordStore.clear();
 
         products.forEach(p => prodStore.put(p));
         sales.forEach(s => salesStore.put(s));
@@ -1079,6 +1196,7 @@ export class AgentStorage {
         rawTransfers.forEach(t => trfStore.put(t));
         rawReservations.forEach(r => resStore.put(r));
         rawSettlements.forEach(st => stlStore.put(st));
+        rawOrders.forEach(o => ordStore.put(o));
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
@@ -1090,6 +1208,7 @@ export class AgentStorage {
       localStorage.setItem('gv_transfers', JSON.stringify(rawTransfers));
       localStorage.setItem('gv_reservations', JSON.stringify(rawReservations));
       localStorage.setItem('gv_settlements', JSON.stringify(rawSettlements));
+      localStorage.setItem('gv_orders', JSON.stringify(rawOrders));
     }
 
     this._notify('warehouses:changed', { action: 'reset' });
@@ -1098,6 +1217,7 @@ export class AgentStorage {
     this._notify('transfers:changed', { action: 'reset' });
     this._notify('reservations:changed', { action: 'reset' });
     this._notify('settlements:changed', { action: 'reset' });
+    this._notify('orders:changed', { action: 'reset' });
     return true;
   }
 
@@ -1222,9 +1342,41 @@ export class AgentStorage {
       }
     }
 
+    // Asegurar que exista al menos un Pedido Inicial en 'orders' y asignar orderId a ventas antiguas
+    let orders = await this.getAllOrders();
+    let defaultOrder = orders.find(o => o.status === 'active') || orders[0];
+    if (!defaultOrder) {
+      const currentProds = await this.getAllProducts();
+      const totalUnits = currentProds.reduce((s, p) => s + (parseInt(p.stock, 10) || 0), 0);
+      const totalCost = currentProds.reduce((s, p) => s + (parseInt(p.stock, 10) || 0) * (parseFloat(p.costPrice) || 0), 0);
+      const expectedRev = currentProds.reduce((s, p) => s + (parseInt(p.stock, 10) || 0) * (parseFloat(p.sellPrice) || 12), 0);
+      defaultOrder = await this.saveOrder({
+        id: 'order_1_initial',
+        name: 'Pedido #1 (Inicial)',
+        status: 'active',
+        supplier: 'Proveedor Principal',
+        notes: 'Pedido inicial de arranque',
+        items: currentProds.map(p => ({
+          productId: p.id,
+          productName: p.name,
+          quantity: parseInt(p.stock, 10) || 0,
+          costPrice: parseFloat(p.costPrice) || 0,
+          sellPrice: parseFloat(p.sellPrice) || 12
+        })),
+        totalUnits,
+        totalCost: parseFloat(totalCost.toFixed(2)),
+        expectedRevenue: parseFloat(expectedRev.toFixed(2))
+      });
+    }
+
     const sales = await this.getAllSales();
     for (const sale of sales) {
       let saleChanged = false;
+      if (!sale.orderId) {
+        sale.orderId = defaultOrder.id;
+        sale.orderName = defaultOrder.name;
+        saleChanged = true;
+      }
       if (!sale.warehouseId) {
         sale.warehouseId = MAIN_WAREHOUSE_ID;
         sale.warehouseName = mainWh.name || 'Mi Almacén (Principal)';

@@ -1057,6 +1057,197 @@ export class AgentInventory {
     };
   }
 
+  // ==========================================
+  // GESTIÓN DE PEDIDOS / LOTES DE MERCANCÍA (RECUENTO DE LLEGADA)
+  // ==========================================
+
+  async getOrders() {
+    return await this.storage.getAllOrders();
+  }
+
+  async getActiveOrder() {
+    return await this.storage.getActiveOrder();
+  }
+
+  async closeOrder(orderId) {
+    const order = await this.storage.getOrderById(orderId);
+    if (!order) {
+      throw new Error('Pedido no encontrado.');
+    }
+    order.status = 'closed';
+    order.closedAt = order.closedAt || new Date().toISOString();
+    await this.storage.saveOrder(order);
+    return {
+      success: true,
+      order,
+      message: `Pedido "${order.name}" marcado como terminado.`
+    };
+  }
+
+  /**
+   * Cierra el pedido anterior (si estaba activo) y registra el recuento de llegada
+   * de un nuevo pedido con sabores variables (existentes y/o nuevos).
+   *
+   * @param {Object} params
+   * @param {string} params.name Nombre del pedido (ej. "Pedido Noviembre")
+   * @param {string} [params.supplier] Proveedor o etiqueta opcional
+   * @param {string} [params.notes] Notas del pedido
+   * @param {boolean} [params.resetExistingStock=true] Si true, pone a 0 el stock anterior para empezar recuento limpio
+   * @param {Array<{productId: string, quantity: number, costPrice?: number, sellPrice?: number}>} [params.existingItems]
+   * @param {Array<{name: string, category?: string, costPrice?: number, sellPrice?: number, quantity: number}>} [params.newItems]
+   */
+  async startNewOrder({
+    name,
+    supplier = '',
+    notes = '',
+    resetExistingStock = true,
+    existingItems = [],
+    newItems = []
+  }) {
+    const cleanName = (name || '').trim();
+    if (!cleanName) {
+      throw new Error('Escribe un nombre para identificar este nuevo pedido.');
+    }
+
+    const validExisting = (existingItems || []).filter(it => (parseInt(it.quantity, 10) || 0) > 0);
+    const validNew = (newItems || []).filter(
+      it => it.name && it.name.trim() && (parseInt(it.quantity, 10) || 0) > 0
+    );
+
+    if (validExisting.length === 0 && validNew.length === 0) {
+      throw new Error('Añade al menos 1 producto con cantidad mayor que 0 para registrar el pedido.');
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // 1. Cerrar pedidos activos anteriores
+    const allOrders = await this.storage.getAllOrders();
+    for (const oldOrder of allOrders) {
+      if (oldOrder.status === 'active') {
+        oldOrder.status = 'closed';
+        oldOrder.closedAt = oldOrder.closedAt || nowIso;
+        await this.storage.saveOrder(oldOrder);
+      }
+    }
+
+    // 2. Si el usuario eligió empezar recuento limpio, poner a 0 el stock anterior de todos los productos
+    const allProducts = await this.storage.getAllProducts();
+    const existingQtyMap = new Map(validExisting.map(it => [it.productId, it]));
+
+    for (const prod of allProducts) {
+      this._normalizeProductStock(prod);
+      const incoming = existingQtyMap.get(prod.id);
+
+      if (resetExistingStock) {
+        // Poner todos los almacenes de este producto a 0 y asignar lo nuevo al Principal
+        Object.keys(prod.stockByWarehouse).forEach(whId => {
+          prod.stockByWarehouse[whId] = 0;
+        });
+        if (incoming) {
+          const qty = Math.max(0, parseInt(incoming.quantity, 10) || 0);
+          prod.stockByWarehouse[MAIN_WAREHOUSE_ID] = qty;
+          if (incoming.costPrice !== undefined && !isNaN(parseFloat(incoming.costPrice))) {
+            prod.costPrice = parseFloat(incoming.costPrice);
+          }
+          if (incoming.sellPrice !== undefined && !isNaN(parseFloat(incoming.sellPrice))) {
+            prod.sellPrice = parseFloat(incoming.sellPrice);
+          }
+        }
+        this._normalizeProductStock(prod);
+        await this.storage.saveProduct(prod);
+      } else if (incoming) {
+        // Sumar las unidades nuevas encima del stock que quedara en el Almacén Principal
+        const qty = Math.max(0, parseInt(incoming.quantity, 10) || 0);
+        prod.stockByWarehouse[MAIN_WAREHOUSE_ID] =
+          (parseInt(prod.stockByWarehouse[MAIN_WAREHOUSE_ID], 10) || 0) + qty;
+        if (incoming.costPrice !== undefined && !isNaN(parseFloat(incoming.costPrice))) {
+          prod.costPrice = parseFloat(incoming.costPrice);
+        }
+        if (incoming.sellPrice !== undefined && !isNaN(parseFloat(incoming.sellPrice))) {
+          prod.sellPrice = parseFloat(incoming.sellPrice);
+        }
+        this._normalizeProductStock(prod);
+        await this.storage.saveProduct(prod);
+      }
+    }
+
+    // 3. Crear los sabores nuevos que hayan llegado en este pedido
+    const orderItems = [];
+    for (const it of validExisting) {
+      const p = await this.storage.getProductById(it.productId);
+      if (p) {
+        const qty = parseInt(it.quantity, 10) || 0;
+        orderItems.push({
+          productId: p.id,
+          productName: p.name,
+          quantity: qty,
+          costPrice: parseFloat(p.costPrice) || 0,
+          sellPrice: parseFloat(p.sellPrice) || 12.00
+        });
+      }
+    }
+
+    for (const newIt of validNew) {
+      const qty = Math.max(1, parseInt(newIt.quantity, 10) || 1);
+      const costPrice = parseFloat(newIt.costPrice) || 6.70;
+      const sellPrice = parseFloat(newIt.sellPrice) || 12.00;
+      const createdProd = await this.addProduct({
+        name: newIt.name.trim(),
+        category: (newIt.category || 'Sabores').trim(),
+        costPrice,
+        sellPrice,
+        stockByWarehouse: { [MAIN_WAREHOUSE_ID]: qty }
+      });
+      orderItems.push({
+        productId: createdProd.id,
+        productName: createdProd.name,
+        quantity: qty,
+        costPrice,
+        sellPrice
+      });
+    }
+
+    // 4. Si resetExistingStock es true, también limpiamos las reservas activas viejas si el producto quedó a 0
+    if (resetExistingStock) {
+      const reservations = await this.storage.getAllReservations();
+      for (const res of reservations) {
+        if (res.status === 'active') {
+          await this.storage.deleteReservation(res.id);
+        }
+      }
+    }
+
+    const totalUnits = orderItems.reduce((sum, it) => sum + (it.quantity || 0), 0);
+    const totalCost = parseFloat(
+      orderItems.reduce((sum, it) => sum + ((it.quantity || 0) * (it.costPrice || 0)), 0).toFixed(2)
+    );
+    const expectedRevenue = parseFloat(
+      orderItems.reduce((sum, it) => sum + ((it.quantity || 0) * (it.sellPrice || 12)), 0).toFixed(2)
+    );
+
+    const newOrder = await this.storage.saveOrder({
+      id: 'ord_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      name: cleanName,
+      status: 'active',
+      supplier: (supplier || '').trim(),
+      notes: (notes || '').trim(),
+      items: orderItems,
+      totalUnits,
+      totalCost,
+      expectedRevenue,
+      createdAt: nowIso,
+      closedAt: null
+    });
+
+    return {
+      success: true,
+      order: newOrder,
+      totalUnits,
+      totalCost,
+      message: `Nuevo pedido "${newOrder.name}" registrado con ${totalUnits} unidades (${orderItems.length} sabores).`
+    };
+  }
+
   _validateProductData(data) {
     if (!data.name || !data.name.trim()) {
       throw new Error('El nombre del producto es obligatorio.');

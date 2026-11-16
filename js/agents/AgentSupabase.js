@@ -245,6 +245,8 @@ export class AgentSupabase {
       buyer_name: s.buyerName || '',
       notes: s.notes || '',
       reservation_id: s.reservationId || null,
+      order_id: s.orderId || null,
+      order_name: s.orderName || '',
       status: s.status || 'completed'
     };
   }
@@ -276,6 +278,8 @@ export class AgentSupabase {
       buyerName: row.buyer_name || '',
       notes: row.notes || '',
       reservationId: row.reservation_id || null,
+      orderId: row.order_id || null,
+      orderName: row.order_name || '',
       status: row.status || 'completed'
     };
   }
@@ -381,6 +385,41 @@ export class AgentSupabase {
     };
   }
 
+  _toDbOrder(o) {
+    return {
+      id: o.id,
+      name: o.name || 'Pedido',
+      status: o.status || 'active',
+      supplier: o.supplier || '',
+      notes: o.notes || '',
+      items: Array.isArray(o.items) ? o.items : [],
+      total_units: parseInt(o.totalUnits, 10) || 0,
+      total_cost: Number(o.totalCost) || 0,
+      expected_revenue: Number(o.expectedRevenue) || 0,
+      created_at: o.createdAt || new Date().toISOString(),
+      closed_at: o.closedAt || null,
+      updated_at: o.updatedAt || new Date().toISOString()
+    };
+  }
+
+  _fromDbOrder(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name || 'Pedido',
+      status: row.status || 'active',
+      supplier: row.supplier || '',
+      notes: row.notes || '',
+      items: Array.isArray(row.items) ? row.items : [],
+      totalUnits: parseInt(row.total_units, 10) || 0,
+      totalCost: Number(row.total_cost) || 0,
+      expectedRevenue: Number(row.expected_revenue) || 0,
+      createdAt: row.created_at || new Date().toISOString(),
+      closedAt: row.closed_at || null,
+      updatedAt: row.updated_at || new Date().toISOString()
+    };
+  }
+
   // ===========================================================================
   // INICIALIZACIÓN, SINCRONIZACIÓN INICIAL Y REALTIME
   // ===========================================================================
@@ -415,14 +454,15 @@ export class AgentSupabase {
   async syncFromCloud() {
     if (!this.isConfigured()) return { synced: false };
 
-    const [whRows, prodRows, saleRows, resRows, trfRows, stlRows, cfgRows] = await Promise.all([
+    const [whRows, prodRows, saleRows, resRows, trfRows, stlRows, cfgRows, ordRows] = await Promise.all([
       this._restRequest('warehouses?select=*'),
       this._restRequest('products?select=*'),
       this._restRequest('sales?select=*&order=timestamp.desc&limit=500'),
       this._restRequest('reservations?select=*'),
       this._restRequest('transfers?select=*&order=timestamp.desc&limit=200'),
       this._restRequest('settlements?select=*&order=timestamp.desc&limit=200'),
-      this._restRequest('app_config?select=*')
+      this._restRequest('app_config?select=*'),
+      this._restRequest('orders?select=*&order=created_at.desc').catch(() => [])
     ]);
 
     const hasRemoteData = (prodRows && prodRows.length > 0) || (whRows && whRows.length > 0);
@@ -441,7 +481,8 @@ export class AgentSupabase {
       sales: (saleRows || []).map(r => this._fromDbSale(r)).filter(Boolean),
       reservations: (resRows || []).map(r => this._fromDbReservation(r)).filter(Boolean),
       transfers: (trfRows || []).map(r => this._fromDbTransfer(r)).filter(Boolean),
-      settlements: (stlRows || []).map(r => this._fromDbSettlement(r)).filter(Boolean)
+      settlements: (stlRows || []).map(r => this._fromDbSettlement(r)).filter(Boolean),
+      orders: (ordRows || []).map(r => this._fromDbOrder(r)).filter(Boolean)
     };
 
     if (this.storage && typeof this.storage.replaceAllFromCloud === 'function') {
@@ -467,14 +508,15 @@ export class AgentSupabase {
   async pushAllLocalToCloud() {
     if (!this.isConfigured() || !this.storage) return { pushed: false };
 
-    const [warehouses, products, sales, reservations, transfers, settlements, authCfg] = await Promise.all([
+    const [warehouses, products, sales, reservations, transfers, settlements, authCfg, orders] = await Promise.all([
       this.storage.getAllWarehouses(),
       this.storage.getAllProducts(),
       this.storage.getAllSales(),
       this.storage.getAllReservations(),
       this.storage.getAllTransfers(),
       this.storage.getAllSettlements(),
-      this.storage.getConfig('auth_config', null)
+      this.storage.getConfig('auth_config', null),
+      this.storage.getAllOrders()
     ]);
 
     if (warehouses.length > 0) {
@@ -492,11 +534,28 @@ export class AgentSupabase {
       });
     }
     if (sales.length > 0) {
-      await this._restRequest('sales', {
-        method: 'POST',
-        prefer: 'resolution=merge-duplicates',
-        body: sales.map(s => this._toDbSale(s))
-      });
+      try {
+        await this._restRequest('sales', {
+          method: 'POST',
+          prefer: 'resolution=merge-duplicates',
+          body: sales.map(s => this._toDbSale(s))
+        });
+      } catch (err) {
+        if (String(err.message || '').includes('order_id')) {
+          await this._restRequest('sales', {
+            method: 'POST',
+            prefer: 'resolution=merge-duplicates',
+            body: sales.map(s => {
+              const row = this._toDbSale(s);
+              delete row.order_id;
+              delete row.order_name;
+              return row;
+            })
+          });
+        } else {
+          throw err;
+        }
+      }
     }
     if (reservations.length > 0) {
       await this._restRequest('reservations', {
@@ -518,6 +577,13 @@ export class AgentSupabase {
         prefer: 'resolution=merge-duplicates',
         body: settlements.map(st => this._toDbSettlement(st))
       });
+    }
+    if (orders.length > 0) {
+      await this._restRequest('orders', {
+        method: 'POST',
+        prefer: 'resolution=merge-duplicates',
+        body: orders.map(o => this._toDbOrder(o))
+      }).catch(() => {});
     }
     if (authCfg) {
       await this.upsertConfig('auth_config', authCfg);
@@ -571,11 +637,26 @@ export class AgentSupabase {
   async upsertSale(s) {
     if (!this.isConfigured() || !s) return;
     this._markLocalWrite('sales', s.id);
-    await this._restRequest('sales', {
-      method: 'POST',
-      prefer: 'resolution=merge-duplicates',
-      body: this._toDbSale(s)
-    });
+    try {
+      await this._restRequest('sales', {
+        method: 'POST',
+        prefer: 'resolution=merge-duplicates',
+        body: this._toDbSale(s)
+      });
+    } catch (err) {
+      if (String(err.message || '').includes('order_id')) {
+        const row = this._toDbSale(s);
+        delete row.order_id;
+        delete row.order_name;
+        await this._restRequest('sales', {
+          method: 'POST',
+          prefer: 'resolution=merge-duplicates',
+          body: row
+        });
+      } else {
+        throw err;
+      }
+    }
     this.lastSyncAt = new Date().toISOString();
   }
 
@@ -637,6 +718,24 @@ export class AgentSupabase {
     this.lastSyncAt = new Date().toISOString();
   }
 
+  async upsertOrder(o) {
+    if (!this.isConfigured() || !o) return;
+    this._markLocalWrite('orders', o.id);
+    await this._restRequest('orders', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates',
+      body: this._toDbOrder(o)
+    }).catch(() => {});
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async deleteOrder(id) {
+    if (!this.isConfigured() || !id) return;
+    this._markLocalWrite('orders', id);
+    await this._restRequest(`orders?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    this.lastSyncAt = new Date().toISOString();
+  }
+
   // ===========================================================================
   // SUPABASE REALTIME (ESCUCHA EN TIEMPO REAL DE CAMBIOS REMOTOS)
   // ===========================================================================
@@ -669,6 +768,9 @@ export class AgentSupabase {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, (payload) => {
         this._handleRealtimeChange('app_config', payload);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+        this._handleRealtimeChange('orders', payload);
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
@@ -736,6 +838,12 @@ export class AgentSupabase {
         await this.storage.saveSettlement(this._fromDbSettlement(payload.new), { skipCloudSync: true });
       } else if (table === 'app_config' && payload.new?.key) {
         await this.storage.setConfig(payload.new.key, payload.new.value, { skipCloudSync: true });
+      } else if (table === 'orders') {
+        if (eventType === 'DELETE' && payload.old?.id) {
+          await this.storage.deleteOrder(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new) {
+          await this.storage.saveOrder(this._fromDbOrder(payload.new), { skipCloudSync: true });
+        }
       }
 
       if (this.onRemoteEvent && !(table === 'sales' && eventType === 'INSERT')) {

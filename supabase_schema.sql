@@ -61,8 +61,13 @@ CREATE TABLE IF NOT EXISTS public.sales (
   buyer_name TEXT DEFAULT '',
   notes TEXT DEFAULT '',
   reservation_id TEXT,
+  order_id TEXT,
+  order_name TEXT,
   status TEXT DEFAULT 'completed'
 );
+
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS order_id TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS order_name TEXT;
 
 -- 4. Reservas de Clientes
 CREATE TABLE IF NOT EXISTS public.reservations (
@@ -117,6 +122,22 @@ CREATE TABLE IF NOT EXISTS public.app_config (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 8. Pedidos / Lotes de Mercancía (Recuentos de llegada al proveedor)
+CREATE TABLE IF NOT EXISTS public.orders (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT DEFAULT 'active',
+  supplier TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  items JSONB DEFAULT '[]'::jsonb,
+  total_units INTEGER DEFAULT 0,
+  total_cost NUMERIC(10, 2) DEFAULT 0,
+  expected_revenue NUMERIC(10, 2) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  closed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Habilitar Row Level Security (RLS) con acceso para la app
 ALTER TABLE public.warehouses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -125,6 +146,7 @@ ALTER TABLE public.reservations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settlements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "allow_all_warehouses" ON public.warehouses;
 CREATE POLICY "allow_all_warehouses" ON public.warehouses FOR ALL USING (true) WITH CHECK (true);
@@ -146,6 +168,9 @@ CREATE POLICY "allow_all_settlements" ON public.settlements FOR ALL USING (true)
 
 DROP POLICY IF EXISTS "allow_all_app_config" ON public.app_config;
 CREATE POLICY "allow_all_app_config" ON public.app_config FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "allow_all_orders" ON public.orders;
+CREATE POLICY "allow_all_orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
 
 -- Activar Supabase Realtime en todas las tablas para sincronización en vivo
 DO $$
@@ -181,5 +206,10 @@ END $$;
 DO $$
 BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.app_config;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;

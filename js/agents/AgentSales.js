@@ -73,10 +73,11 @@ export class AgentSales {
 
     const targetWh = (!warehouseId || warehouseId === 'all') ? MAIN_WAREHOUSE_ID : warehouseId;
 
-    // 2. Obtener producto, almacén y comprobar stock en dicho almacén
-    const [product, warehouse] = await Promise.all([
+    // 2. Obtener producto, almacén y pedido activo
+    const [product, warehouse, activeOrder] = await Promise.all([
       this.inventory.getProduct(productId),
-      this.inventory.getWarehouse(targetWh)
+      this.inventory.getWarehouse(targetWh),
+      this.storage.getActiveOrder()
     ]);
 
     if (!product) {
@@ -135,6 +136,8 @@ export class AgentSales {
       buyerName: cleanBuyerName,
       notes: (notes || '').trim(),
       reservationId: reservationId || null,
+      orderId: activeOrder ? activeOrder.id : null,
+      orderName: activeOrder ? activeOrder.name : '',
       status: 'completed'
     };
 

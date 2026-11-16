@@ -6,14 +6,14 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.3';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.3';
-import { AgentSales } from './agents/AgentSales.js?v=4.3';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.3';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.3';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.3';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.3';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.3';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.4';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.4';
+import { AgentSales } from './agents/AgentSales.js?v=4.4';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.4';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.4';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.4';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.4';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.4';
 
 class AppController {
   constructor() {
@@ -70,6 +70,8 @@ class AppController {
     // Estado Pestaña 3: Analítica, Métricas y Series Temporales Interactivas
     this.analyticsTimeframe = 'today'; // 'today' | 'week' | 'month' | 'all'
     this.analyticsWarehouseFilter = 'all'; // 'all' | 'wh_main' | warehouseId
+    this.analyticsOrderFilter = 'all'; // 'all' | orderId
+    this.newOrderDraft = null;
     this.revenueChartScale = null; // null = sincronizado con timeSeries.defaultScale
     this.revenueChartMode = 'interval'; // 'interval' | 'cumulative'
     this.revenueInspectedIdx = null;
@@ -121,6 +123,7 @@ class AppController {
     this.storageAgent.subscribe('transfers:changed', refreshUI);
     this.storageAgent.subscribe('reservations:changed', refreshUI);
     this.storageAgent.subscribe('settlements:changed', refreshUI);
+    this.storageAgent.subscribe('orders:changed', refreshUI);
 
     this.setupEventListeners();
     this.setupServiceWorker();
@@ -1436,9 +1439,10 @@ class AppController {
     const isWorker = this.authAgent.isWorker();
     const assignedWh = this.authAgent.getAssignedWarehouseId();
 
-    const [warehouses, valuation] = await Promise.all([
+    const [warehouses, valuation, activeOrder] = await Promise.all([
       this.inventoryAgent.getWarehouses(),
-      this.inventoryAgent.getInventoryValuation(isWorker ? assignedWh : this.selectedInventoryWarehouse)
+      this.inventoryAgent.getInventoryValuation(isWorker ? assignedWh : this.selectedInventoryWarehouse),
+      this.inventoryAgent.getActiveOrder()
     ]);
 
     if (isWorker && assignedWh) {
@@ -1460,6 +1464,35 @@ class AppController {
       : null;
 
     let html = isWorker ? '' : `
+      <!-- Tarjeta de Pedido Activo y Botón de Nuevo Pedido / Recuento -->
+      <div class="ios-card p-3 mb-3.5 border-indigo-500/30 bg-gradient-to-r from-indigo-950/35 to-slate-900/90 flex flex-wrap items-center justify-between gap-2.5">
+        <div class="min-w-0">
+          <div class="text-[10px] uppercase tracking-wider text-indigo-300 font-bold flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full ${activeOrder?.status === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
+            <span>${activeOrder?.status === 'active' ? 'Pedido Activo en Curso' : 'Sin Pedido Activo'}</span>
+          </div>
+          <div class="text-sm font-black text-white truncate mt-0.5">
+            📦 ${this._escapeHtml(activeOrder ? activeOrder.name : 'Pedido Inicial')}
+            ${activeOrder ? `<span class="text-xs font-semibold text-slate-400 ml-1">(${activeOrder.totalUnits} uds recibidas)</span>` : ''}
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            onclick="window.app.openNewOrderModal()"
+            class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-lg shadow-emerald-900/30 flex items-center gap-1.5"
+          >
+            <span>📦</span> Nuevo Pedido / Recuento
+          </button>
+          <button
+            type="button"
+            onclick="window.app.switchTab('analytics')"
+            class="btn-pressable bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/35 text-xs font-bold px-2.5 py-2 rounded-xl"
+            title="Ver métricas por pedido"
+          >📊 Pedidos</button>
+        </div>
+      </div>
+
       <!-- Barra de Espacios de Almacenes (General, Principal y Casas de Trabajadores) -->
       <div class="mb-3.5">
         <div class="flex items-center justify-between text-[11px] text-slate-400 px-1 mb-1.5">
@@ -3185,17 +3218,28 @@ class AppController {
       return;
     }
 
-    const warehouses = await this.inventoryAgent.getWarehouses();
+    const [warehouses, ordersList] = await Promise.all([
+      this.inventoryAgent.getWarehouses(),
+      this.inventoryAgent.getOrders()
+    ]);
+
     if (
       this.analyticsWarehouseFilter !== 'all' &&
       !warehouses.some(w => w.id === this.analyticsWarehouseFilter)
     ) {
       this.analyticsWarehouseFilter = 'all';
     }
+    if (
+      this.analyticsOrderFilter !== 'all' &&
+      !ordersList.some(o => o.id === this.analyticsOrderFilter)
+    ) {
+      this.analyticsOrderFilter = 'all';
+    }
 
     const data = await this.analyticsAgent.getDashboardMetrics(
       this.analyticsTimeframe,
-      this.analyticsWarehouseFilter
+      this.analyticsWarehouseFilter,
+      this.analyticsOrderFilter
     );
 
     const timeframeLabels = {
@@ -3208,10 +3252,14 @@ class AppController {
     const activeWhObj = this.analyticsWarehouseFilter === 'all'
       ? null
       : warehouses.find(w => w.id === this.analyticsWarehouseFilter);
+    const activeOrdObj = this.analyticsOrderFilter === 'all'
+      ? null
+      : ordersList.find(o => o.id === this.analyticsOrderFilter);
 
-    const activeFilterTitle = activeWhObj
-      ? `${activeWhObj.icon || '🏠'} ${this._escapeHtml(activeWhObj.name)}`
-      : '🌐 Todos los Almacenes';
+    const activeFilterTitle = [
+      activeWhObj ? `${activeWhObj.icon || '🏠'} ${this._escapeHtml(activeWhObj.name)}` : '🌐 Todos los Almacenes',
+      activeOrdObj ? `📦 ${this._escapeHtml(activeOrdObj.name)}` : null
+    ].filter(Boolean).join(' • ');
 
     const allTime = data.allTimeSummary;
     const health = data.businessHealth;
@@ -3220,6 +3268,7 @@ class AppController {
     this._lastTimeSeriesData = ts;
     const maxDayBilled = Math.max(1, ...vel.last7DaysTrend.map(d => d.billed));
 
+    const ordersMetricsHtml = this._buildOrdersMetricsSectionHtml(data.ordersMetrics);
     const revenueChartCardHtml = this._buildRevenueTimeSeriesCardHtml(ts, activeFilterTitle);
     const unitsChartCardHtml = this._buildUnitsTimeSeriesCardHtml(ts, activeFilterTitle);
     const workerAccountsHtml = this._buildWorkerAccountsSectionHtml(data.workerAccounts);
@@ -3229,7 +3278,7 @@ class AppController {
     const flavorIntelHtml = this._buildFlavorIntelligenceSectionHtml(data.warehouseFlavorIntelligence);
 
     let html = `
-      <!-- 0. CONTROLES DE FILTRO: TIEMPO Y ALMACÉN -->
+      <!-- 0. CONTROLES DE FILTRO: TIEMPO, ALMACÉN Y PEDIDO -->
       <div class="ios-segmented mb-2.5">
         <button class="segmented-option ${this.analyticsTimeframe === 'today' ? 'active' : ''}" onclick="window.app.setTimeframe('today')">Hoy</button>
         <button class="segmented-option ${this.analyticsTimeframe === 'week' ? 'active' : ''}" onclick="window.app.setTimeframe('week')">7 Días</button>
@@ -3237,7 +3286,7 @@ class AppController {
         <button class="segmented-option ${this.analyticsTimeframe === 'all' ? 'active' : ''}" onclick="window.app.setTimeframe('all')">Todo</button>
       </div>
 
-      <div class="warehouse-pills-bar no-scrollbar mb-4">
+      <div class="warehouse-pills-bar no-scrollbar mb-2">
         <button 
           type="button"
           onclick="window.app.setAnalyticsWarehouseFilter('all')"
@@ -3256,6 +3305,36 @@ class AppController {
             <span>${this._escapeHtml(wh.name)}</span>
           </button>
         `).join('')}
+      </div>
+
+      <!-- Filtro de Pedido / Lote -->
+      <div class="warehouse-pills-bar no-scrollbar mb-4">
+        <button 
+          type="button"
+          onclick="window.app.setAnalyticsOrderFilter('all')"
+          class="warehouse-pill btn-pressable ${this.analyticsOrderFilter === 'all' ? 'active-indigo' : ''}"
+        >
+          <span>📦</span>
+          <span>Todos los Pedidos (General)</span>
+        </button>
+        ${ordersList.map(o => `
+          <button 
+            type="button"
+            onclick="window.app.setAnalyticsOrderFilter('${o.id}')"
+            class="warehouse-pill btn-pressable ${this.analyticsOrderFilter === o.id ? 'active' : ''}"
+          >
+            <span>${o.status === 'active' ? '🟢' : '🏁'}</span>
+            <span>${this._escapeHtml(o.name)}</span>
+          </button>
+        `).join('')}
+        <button
+          type="button"
+          onclick="window.app.openNewOrderModal()"
+          class="warehouse-pill btn-pressable border-dashed border-emerald-500/50 text-emerald-300 bg-emerald-950/20"
+        >
+          <span>+</span>
+          <span>Nuevo Pedido</span>
+        </button>
       </div>
 
       <!-- 1. TARJETA DESTACADA: FACTURACIÓN GENERAL HISTÓRICA ("Cuánto se factura en general") -->
@@ -3296,6 +3375,9 @@ class AppController {
           </div>
         </div>
       </div>
+
+      <!-- 1.B MÉTRICAS Y COMPARATIVA DE CADA PEDIDO / LOTE -->
+      ${ordersMetricsHtml}
 
       <!-- 2. TARJETAS KPI DEL PERIODO Y ALMACÉN SELECCIONADO -->
       <div class="mb-2 px-1 flex items-center justify-between">
@@ -6041,15 +6123,489 @@ class AppController {
     this.switchTab('sales');
   }
 
+  // =========================================================================
+  // MÉTRICAS DE CADA PEDIDO Y MODAL DE NUEVO PEDIDO / RECUENTO
+  // =========================================================================
+
+  _buildOrdersMetricsSectionHtml(ordersMetrics) {
+    if (!ordersMetrics || !ordersMetrics.orders || ordersMetrics.orders.length === 0) {
+      return '';
+    }
+
+    const orders = ordersMetrics.orders;
+
+    return `
+      <div class="ios-card ios-card-glow-indigo mb-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+              <span>📦</span> Rendimiento y Métricas por Pedido (${orders.length})
+            </h3>
+            <p class="text-[11px] text-slate-300 mt-0.5">
+              Compara cuánto has invertido, facturado y ganado en cada pedido al proveedor.
+            </p>
+          </div>
+          <button
+            type="button"
+            onclick="window.app.openNewOrderModal()"
+            class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-bold shadow-md shadow-emerald-900/30"
+          >+ Nuevo Pedido / Recuento</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          ${orders.map(ord => {
+            const isSelected = this.analyticsOrderFilter === ord.id;
+            const isActive = ord.status === 'active';
+            const dateStr = ord.createdAt
+              ? new Date(ord.createdAt).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })
+              : '';
+
+            return `
+              <div class="bg-slate-900/90 p-3.5 rounded-2xl border ${
+                isSelected ? 'border-emerald-400' : isActive ? 'border-emerald-500/40' : 'border-slate-700/70'
+              }">
+                <div class="flex items-start justify-between gap-2 mb-2.5">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <h4 class="text-sm font-black text-white truncate">${this._escapeHtml(ord.name)}</h4>
+                      <span class="badge ${isActive ? 'badge-ok-stock' : 'badge-warehouse'} text-[9.5px]">
+                        ${isActive ? '🟢 Activo' : '🏁 Terminado'}
+                      </span>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-0.5">
+                      ${dateStr}${ord.supplier ? ` • ${this._escapeHtml(ord.supplier)}` : ''} • ${ord.flavorsCount} sabores (${ord.initialUnits} uds)
+                    </div>
+                  </div>
+                  <span class="badge ${ord.roiPct >= 0 ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px] flex-shrink-0">
+                    ROI: ${ord.roiPct}%
+                  </span>
+                </div>
+
+                <!-- 4 cifras clave del pedido -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center mb-2.5 tabular-nums">
+                  <div class="bg-slate-950/65 p-2 rounded-xl border border-slate-800">
+                    <div class="text-[9.5px] text-slate-400 uppercase">Inversión</div>
+                    <div class="text-xs font-black text-slate-200 mt-0.5">${ord.initialCost.toFixed(2)}€</div>
+                  </div>
+                  <div class="bg-slate-950/65 p-2 rounded-xl border border-slate-800">
+                    <div class="text-[9.5px] text-indigo-300 uppercase">Facturado</div>
+                    <div class="text-xs font-black text-white mt-0.5">${ord.billed.toFixed(2)}€</div>
+                  </div>
+                  <div class="bg-emerald-950/40 p-2 rounded-xl border border-emerald-500/30">
+                    <div class="text-[9.5px] text-emerald-300 uppercase">Beneficio</div>
+                    <div class="text-xs font-black text-emerald-400 mt-0.5">+${ord.profit.toFixed(2)}€</div>
+                  </div>
+                  <div class="bg-slate-950/65 p-2 rounded-xl border border-slate-800">
+                    <div class="text-[9.5px] text-slate-400 uppercase">Margen</div>
+                    <div class="text-xs font-black text-white mt-0.5">${ord.profitMargin}%</div>
+                  </div>
+                </div>
+
+                <!-- Barra de progreso de unidades vendidas del pedido -->
+                <div class="mb-2.5">
+                  <div class="flex items-center justify-between text-[10px] text-slate-300 mb-1">
+                    <span>Progreso del pedido: <strong>${ord.unitsSold} / ${ord.initialUnits} uds</strong> vendidas</span>
+                    <span class="text-emerald-400 font-bold">${ord.sellThroughPct}% (${ord.remainingUnits} rest.)</span>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-fill-emerald" style="width: ${Math.min(100, ord.sellThroughPct)}%"></div>
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-400 mb-2.5 gap-1">
+                  <span>💵 ${ord.cashBilled.toFixed(0)}€ • 💳 ${ord.cardBilled.toFixed(0)}€${ord.pendingDebtBilled > 0 ? ` • ⏳ ${ord.pendingDebtBilled.toFixed(0)}€` : ''}</span>
+                  <span>${ord.transactionCount} ventas (ticket ${ord.avgTicket.toFixed(2)}€)</span>
+                </div>
+
+                ${ord.topFlavors && ord.topFlavors.length > 0 ? `
+                  <div class="text-[10px] text-slate-300 bg-slate-950/50 px-2.5 py-1.5 rounded-xl border border-slate-800/80 mb-2.5 truncate">
+                    ⭐ Top: ${ord.topFlavors.map(f => `${this._escapeHtml(f.name)} (${f.unitsSold})`).join(' · ')}
+                  </div>
+                ` : ''}
+
+                <div class="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onclick="window.app.setAnalyticsOrderFilter('${isSelected ? 'all' : ord.id}')"
+                    class="btn-pressable flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold border ${
+                      isSelected
+                        ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/50'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                    }"
+                  >
+                    ${isSelected ? '✓ Viendo este pedido (Ver Todos)' : '🔍 Filtrar Métricas por este Pedido'}
+                  </button>
+                  ${isActive ? `
+                    <button
+                      type="button"
+                      onclick="window.app.closeOrderAction('${ord.id}')"
+                      class="btn-pressable py-1.5 px-2.5 rounded-xl text-[11px] font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
+                      title="Marcar este pedido como terminado"
+                    >🏁 Terminar</button>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  setAnalyticsOrderFilter(orderId) {
+    this.analyticsOrderFilter = orderId || 'all';
+    this.revenueInspectedIdx = null;
+    this.unitsInspectedIdx = null;
+    this._playChime('tap');
+    this.renderAnalyticsView();
+  }
+
+  async closeOrderAction(orderId) {
+    if (!confirm('¿Marcar este pedido como terminado/cerrado? Podrás seguir consultando sus métricas en todo momento y abrir un nuevo pedido cuando te llegue mercancía.')) {
+      return;
+    }
+    try {
+      const res = await this.inventoryAgent.closeOrder(orderId);
+      this._playChime('success');
+      this.showToast(res.message, '🏁');
+      this.scheduleCloudSnapshotPublish();
+      await this.renderCurrentTab();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async openNewOrderModal() {
+    const [products, existingOrders] = await Promise.all([
+      this.inventoryAgent.getProducts({ warehouseId: 'all' }),
+      this.inventoryAgent.getOrders()
+    ]);
+
+    const nextNum = existingOrders.length + 1;
+    const monthLabel = new Date().toLocaleDateString('es-ES', { month: 'short' }).replace('.', '');
+    const suggestedName = `Pedido #${nextNum} (${monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)})`;
+
+    this.newOrderDraft = {
+      name: suggestedName,
+      supplier: '',
+      notes: '',
+      resetExistingStock: true,
+      existingItems: products.map(p => ({
+        productId: p.id,
+        name: p.name,
+        currentStock: p.stock || 0,
+        costPrice: parseFloat(p.costPrice) || 6.70,
+        sellPrice: parseFloat(p.sellPrice) || 12.00,
+        quantity: 0
+      })),
+      newItems: []
+    };
+
+    this.renderNewOrderModalBody();
+    document.getElementById('newOrderModal')?.classList.add('active');
+    this._playChime('tap');
+  }
+
+  renderNewOrderModalBody() {
+    const body = document.getElementById('newOrderModalBody');
+    const draft = this.newOrderDraft;
+    if (!body || !draft) return;
+
+    const existingActive = draft.existingItems.filter(it => (parseInt(it.quantity, 10) || 0) > 0);
+    const totalUnits = existingActive.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0)
+      + draft.newItems.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0);
+    const totalFlavors = existingActive.length + draft.newItems.length;
+    const totalCost = existingActive.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.costPrice) || 0)), 0)
+      + draft.newItems.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.costPrice) || 0)), 0);
+    const totalExpected = existingActive.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.sellPrice) || 12)), 0)
+      + draft.newItems.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.sellPrice) || 12)), 0);
+
+    body.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h3 class="text-base font-black text-white">📦 Nuevo Pedido / Recuento de Llegada</h3>
+          <span class="text-xs text-slate-400">Cierra el pedido anterior y cuenta los sabores nuevos que han llegado</span>
+        </div>
+        <button type="button" onclick="document.getElementById('newOrderModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+      </div>
+
+      <div class="space-y-3">
+        <!-- Nombre del pedido y proveedor -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="text-[10px] uppercase font-bold text-slate-400 block mb-1">Nombre del Nuevo Pedido *</label>
+            <input
+              type="text"
+              value="${this._escapeHtml(draft.name)}"
+              oninput="window.app.newOrderDraft.name = this.value"
+              placeholder="Ej: Pedido Noviembre..."
+              class="w-full bg-slate-900 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs font-bold focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div>
+            <label class="text-[10px] uppercase font-bold text-slate-400 block mb-1">Nota o Proveedor (Opcional)</label>
+            <input
+              type="text"
+              value="${this._escapeHtml(draft.notes)}"
+              oninput="window.app.newOrderDraft.notes = this.value"
+              placeholder="Ej: Caja grande, nuevos sabores..."
+              class="w-full bg-slate-900 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+        </div>
+
+        <!-- Qué hacer con el stock anterior -->
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onclick="window.app.setNewOrderMode(true)"
+            class="btn-pressable p-2.5 rounded-xl border text-left transition-all ${
+              draft.resetExistingStock
+                ? 'border-emerald-500 bg-emerald-500/20 text-white'
+                : 'border-slate-700 bg-slate-900/80 text-slate-400'
+            }"
+          >
+            <div class="text-xs font-bold">🧹 Recuento desde 0</div>
+            <div class="text-[10px] opacity-80 mt-0.5">Termina el pedido anterior y deja solo lo nuevo que cuentes</div>
+          </button>
+
+          <button
+            type="button"
+            onclick="window.app.setNewOrderMode(false)"
+            class="btn-pressable p-2.5 rounded-xl border text-left transition-all ${
+              !draft.resetExistingStock
+                ? 'border-indigo-500 bg-indigo-500/20 text-white'
+                : 'border-slate-700 bg-slate-900/80 text-slate-400'
+            }"
+          >
+            <div class="text-xs font-bold">➕ Sumar al stock restante</div>
+            <div class="text-[10px] opacity-80 mt-0.5">Mantiene lo que queda sin vender y suma lo nuevo</div>
+          </button>
+        </div>
+
+        <!-- Añadir un sabor nuevo que no estaba en el catálogo -->
+        <div class="bg-emerald-950/25 p-3 rounded-2xl border border-emerald-500/35">
+          <div class="text-xs font-bold text-emerald-300 mb-2">✨ Añadir Sabor Nuevo que llega en este Pedido</div>
+          <div class="grid grid-cols-12 gap-1.5 mb-2">
+            <input
+              type="text"
+              id="orderNewFlavorName"
+              placeholder="Nombre del sabor (ej. Watermelon Ice 🍉🧊)"
+              class="col-span-12 sm:col-span-6 bg-slate-900 text-white px-2.5 py-2 rounded-xl border border-slate-700 text-xs"
+            />
+            <input
+              type="number"
+              step="0.01"
+              id="orderNewFlavorCost"
+              value="6.70"
+              placeholder="Coste"
+              title="Coste (€)"
+              class="col-span-4 sm:col-span-2 bg-slate-900 text-slate-200 text-center px-2 py-2 rounded-xl border border-slate-700 text-xs"
+            />
+            <input
+              type="number"
+              step="0.01"
+              id="orderNewFlavorSell"
+              value="12.00"
+              placeholder="PVP"
+              title="PVP (€)"
+              class="col-span-4 sm:col-span-2 bg-slate-900 text-white font-bold text-center px-2 py-2 rounded-xl border border-slate-700 text-xs"
+            />
+            <input
+              type="number"
+              min="1"
+              id="orderNewFlavorQty"
+              value="10"
+              placeholder="Uds"
+              title="Unidades"
+              class="col-span-4 sm:col-span-2 bg-slate-900 text-emerald-400 font-black text-center px-2 py-2 rounded-xl border border-slate-700 text-xs"
+            />
+          </div>
+          <button
+            type="button"
+            onclick="window.app.addNewFlavorToOrderDraft()"
+            class="btn-pressable w-full py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/45 text-emerald-200 border border-emerald-500/40 text-xs font-bold"
+          >+ Añadir Nuevo Sabor al Recuento</button>
+
+          ${draft.newItems.length > 0 ? `
+            <div class="mt-2.5 space-y-1.5">
+              ${draft.newItems.map((ni, idx) => `
+                <div class="flex items-center justify-between bg-slate-900/90 px-2.5 py-1.5 rounded-xl border border-emerald-500/40 text-xs">
+                  <div class="min-w-0 pr-2">
+                    <span class="font-bold text-white">${this._escapeHtml(ni.name)}</span>
+                    <span class="text-[10px] text-slate-400 ml-1">(${ni.costPrice.toFixed(2)}€ / ${ni.sellPrice.toFixed(2)}€)</span>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="badge badge-ok-stock text-[11px]">${ni.quantity} uds</span>
+                    <button type="button" onclick="window.app.removeNewFlavorFromOrderDraft(${idx})" class="text-rose-400 font-bold text-xs px-1">✕</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Recuento rápido de sabores ya existentes -->
+        <div>
+          <div class="flex items-center justify-between text-[11px] text-slate-300 font-bold mb-1.5">
+            <span>🍓 Sabores que ya conoces (pon 0 si no vinieron ahora):</span>
+          </div>
+          <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+            ${draft.existingItems.map((item, idx) => `
+              <div class="bg-slate-900/85 p-2 rounded-xl border ${item.quantity > 0 ? 'border-emerald-500/50 bg-emerald-950/20' : 'border-slate-800'} flex items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs font-bold text-white truncate">${this._escapeHtml(item.name)}</div>
+                  <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                    <span>Coste:</span>
+                    <input type="number" step="0.01" value="${item.costPrice}" onchange="window.app.setOrderExistingPrice(${idx}, 'costPrice', this.value)" class="w-12 bg-slate-950 text-slate-200 text-center rounded border border-slate-700 py-0.5 text-[10px]" />
+                    <span>PVP:</span>
+                    <input type="number" step="0.01" value="${item.sellPrice}" onchange="window.app.setOrderExistingPrice(${idx}, 'sellPrice', this.value)" class="w-12 bg-slate-950 text-white text-center rounded border border-slate-700 py-0.5 text-[10px]" />
+                    <span class="text-slate-500">(había ${item.currentStock})</span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <button type="button" onclick="window.app.stepOrderExistingQty(${idx}, -1)" class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-white font-bold text-xs">-</button>
+                  <input
+                    type="number"
+                    min="0"
+                    value="${item.quantity}"
+                    onchange="window.app.setOrderExistingQty(${idx}, this.value)"
+                    class="w-11 text-center bg-slate-950 text-white font-black text-xs py-1 rounded-lg border border-slate-700"
+                  />
+                  <button type="button" onclick="window.app.stepOrderExistingQty(${idx}, 1)" class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-white font-bold text-xs">+</button>
+                  <button type="button" onclick="window.app.stepOrderExistingQty(${idx}, 5)" class="btn-pressable px-1.5 h-7 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]">+5</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Resumen financiero en vivo del recuento -->
+        <div class="bg-slate-900/90 p-3 rounded-2xl border border-white/10 flex items-center justify-between text-xs tabular-nums">
+          <div>
+            <div class="text-[10px] text-slate-400">Total Recuento Nuevo Pedido</div>
+            <div class="text-base font-black text-white">${totalUnits} uds (${totalFlavors} sabores)</div>
+          </div>
+          <div class="text-right">
+            <div class="text-[10px] text-slate-400">Inversión / Venta Est.</div>
+            <div class="text-xs font-bold text-slate-200">${totalCost.toFixed(2)}€ <span class="text-emerald-400">→ ${totalExpected.toFixed(2)}€</span></div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onclick="window.app.confirmSaveNewOrder()"
+          ${totalUnits <= 0 ? 'disabled' : ''}
+          class="btn-primary btn-pressable"
+        >
+          <span>📦 Guardar Nuevo Pedido y Actualizar Stock (${totalUnits} uds)</span>
+        </button>
+      </div>
+    `;
+  }
+
+  setNewOrderMode(resetExisting) {
+    if (!this.newOrderDraft) return;
+    this.newOrderDraft.resetExistingStock = !!resetExisting;
+    this._playChime('tap');
+    this.renderNewOrderModalBody();
+  }
+
+  stepOrderExistingQty(idx, delta) {
+    if (!this.newOrderDraft || !this.newOrderDraft.existingItems[idx]) return;
+    const item = this.newOrderDraft.existingItems[idx];
+    item.quantity = Math.max(0, (parseInt(item.quantity, 10) || 0) + delta);
+    this._playChime('tap');
+    this.renderNewOrderModalBody();
+  }
+
+  setOrderExistingQty(idx, val) {
+    if (!this.newOrderDraft || !this.newOrderDraft.existingItems[idx]) return;
+    this.newOrderDraft.existingItems[idx].quantity = Math.max(0, parseInt(val, 10) || 0);
+    this.renderNewOrderModalBody();
+  }
+
+  setOrderExistingPrice(idx, field, val) {
+    if (!this.newOrderDraft || !this.newOrderDraft.existingItems[idx]) return;
+    const parsed = parseFloat(val);
+    if (!isNaN(parsed) && parsed >= 0) {
+      this.newOrderDraft.existingItems[idx][field] = parsed;
+    }
+    this.renderNewOrderModalBody();
+  }
+
+  addNewFlavorToOrderDraft() {
+    if (!this.newOrderDraft) return;
+    const nameEl = document.getElementById('orderNewFlavorName');
+    const costEl = document.getElementById('orderNewFlavorCost');
+    const sellEl = document.getElementById('orderNewFlavorSell');
+    const qtyEl = document.getElementById('orderNewFlavorQty');
+
+    const name = (nameEl?.value || '').trim();
+    if (!name) {
+      alert('Escribe el nombre del sabor nuevo.');
+      if (nameEl) nameEl.focus();
+      return;
+    }
+
+    const costPrice = parseFloat(costEl?.value) || 6.70;
+    const sellPrice = parseFloat(sellEl?.value) || 12.00;
+    const quantity = Math.max(1, parseInt(qtyEl?.value, 10) || 1);
+
+    this.newOrderDraft.newItems.push({
+      name,
+      category: 'Sabores',
+      costPrice,
+      sellPrice,
+      quantity
+    });
+
+    this._playChime('success');
+    this.renderNewOrderModalBody();
+  }
+
+  removeNewFlavorFromOrderDraft(idx) {
+    if (!this.newOrderDraft) return;
+    this.newOrderDraft.newItems.splice(idx, 1);
+    this._playChime('tap');
+    this.renderNewOrderModalBody();
+  }
+
+  async confirmSaveNewOrder() {
+    const draft = this.newOrderDraft;
+    if (!draft) return;
+
+    try {
+      const res = await this.inventoryAgent.startNewOrder({
+        name: draft.name,
+        supplier: draft.supplier,
+        notes: draft.notes,
+        resetExistingStock: draft.resetExistingStock,
+        existingItems: draft.existingItems,
+        newItems: draft.newItems
+      });
+
+      this.newOrderDraft = null;
+      document.getElementById('newOrderModal')?.classList.remove('active');
+      this._playChime('success');
+      this.showToast(res.message, '📦');
+      this.scheduleCloudSnapshotPublish();
+      await this.renderCurrentTab();
+      await this.updateHeaderQuickStats();
+    } catch (err) {
+      alert(`No se pudo registrar el pedido: ${err.message}`);
+    }
+  }
+
   // ==========================================
   // SERVICE WORKER PARA OFFLINE
   // ==========================================
   setupServiceWorker() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=4.3')
+        navigator.serviceWorker.register('./sw.js?v=4.4')
           .then(reg => {
-            console.log('Service Worker v4.3 registrado correctamente');
+            console.log('Service Worker v4.4 registrado correctamente');
             reg.update();
           })
           .catch(err => console.log('Registro SW opcional omitido:', err));

@@ -32,14 +32,27 @@ export class AgentAnalytics {
    * @param {'today'|'week'|'month'|'all'} [timeframe='today'] Rango temporal
    * @param {string} [warehouseFilter='all'] ID del almacén ('all' o un warehouseId específico)
    */
-  async getDashboardMetrics(timeframe = 'today', warehouseFilter = 'all') {
-    const [allProducts, allWarehouses, allSales, allReservations, allSettlements] = await Promise.all([
+  async getDashboardMetrics(timeframe = 'today', warehouseFilter = 'all', orderFilter = 'all') {
+    const [allProducts, allWarehouses, rawAllSales, allReservations, allSettlements, allOrders] = await Promise.all([
       this.storage.getAllProducts(),
       this.storage.getAllWarehouses(),
       this.storage.getAllSales(),
       this.storage.getAllReservations(),
-      this.storage.getAllSettlements()
+      this.storage.getAllSettlements(),
+      this.storage.getAllOrders()
     ]);
+
+    // Calcular métricas por cada Pedido/Lote sobre todo el histórico antes de filtrar
+    const ordersMetrics = this._computeOrdersMetrics(allOrders, rawAllSales);
+
+    // Si hay un pedido concreto seleccionado en el filtro, acotar allSales a ese pedido
+    const allSales = (!orderFilter || orderFilter === 'all')
+      ? rawAllSales
+      : rawAllSales.filter(s => {
+          const fallbackOrdId = ordersMetrics.fallbackOrderId;
+          const saleOrdId = s.orderId || fallbackOrdId;
+          return saleOrdId === orderFilter;
+        });
 
     const productPriceMap = new Map();
 
@@ -156,7 +169,7 @@ export class AgentAnalytics {
       .slice(0, 5);
 
     // =========================================================================
-    // 2. RESUMEN GENERAL HISTÓRICO GLOBAL ("Cuánto se factura en general")
+    // 2. RESUMEN GENERAL HISTÓRICO GLOBAL ("Cuánto se factura en general" - todos los pedidos)
     // =========================================================================
     let allTimeBilled = 0;
     let allTimeProfit = 0;
@@ -169,7 +182,7 @@ export class AgentAnalytics {
 
     const allTimeProductUnitsMap = new Map();
 
-    allSales.forEach(s => {
+    rawAllSales.forEach(s => {
       const gross = parseFloat(s.grossTotal) || 0;
       const profit = parseFloat(s.netProfit) || 0;
       const cost = parseFloat(s.totalCost) || 0;
@@ -191,11 +204,14 @@ export class AgentAnalytics {
       } else {
         allTimePaidBilled += gross;
       }
+    });
 
+    allSales.forEach(s => {
+      const qty = parseInt(s.quantity, 10) || 0;
       allTimeProductUnitsMap.set(s.productId, (allTimeProductUnitsMap.get(s.productId) || 0) + qty);
     });
 
-    const allTimeTransactionCount = allSales.length;
+    const allTimeTransactionCount = rawAllSales.length;
     const allTimeSummary = {
       totalBilled: parseFloat(allTimeBilled.toFixed(2)),
       totalProfit: parseFloat(allTimeProfit.toFixed(2)),
@@ -521,6 +537,7 @@ export class AgentAnalytics {
     return {
       timeframe,
       warehouseFilter,
+      orderFilter,
       totalBilled: parseFloat(totalBilled.toFixed(2)),
       totalProfit: parseFloat(totalProfit.toFixed(2)),
       totalCost: parseFloat(totalCost.toFixed(2)),
@@ -536,6 +553,7 @@ export class AgentAnalytics {
       topProducts,
       recentSales: filteredSales.slice(0, 15),
       allTimeSummary,
+      ordersMetrics,
       warehouseBreakdown,
       workerAccounts,
       discountMetrics,
@@ -547,6 +565,134 @@ export class AgentAnalytics {
       velocityMetrics,
       slowMovingProducts,
       lowStockAlerts
+    };
+  }
+
+  /**
+   * Calcula las métricas completas de cada Pedido/Lote (facturado, beneficio, ROI,
+   * unidades vendidas vs recibidas, efectivo vs tarjeta, top sabores de ese pedido).
+   */
+  _computeOrdersMetrics(allOrders = [], allSales = []) {
+    const sortedOrders = [...(allOrders || [])].sort(
+      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+    );
+    const activeOrder = sortedOrders.find(o => o.status === 'active') || sortedOrders[0] || null;
+    const fallbackOrderId = sortedOrders.length > 0
+      ? sortedOrders[sortedOrders.length - 1].id
+      : null;
+
+    const salesByOrder = new Map();
+    sortedOrders.forEach(o => salesByOrder.set(o.id, []));
+
+    allSales.forEach(sale => {
+      const ordId = sale.orderId || fallbackOrderId;
+      if (!ordId) return;
+      if (!salesByOrder.has(ordId)) {
+        salesByOrder.set(ordId, []);
+      }
+      salesByOrder.get(ordId).push(sale);
+    });
+
+    const orders = sortedOrders.map(order => {
+      const orderSales = salesByOrder.get(order.id) || [];
+      let billed = 0;
+      let profit = 0;
+      let costOfSold = 0;
+      let unitsSold = 0;
+      let cashBilled = 0;
+      let cardBilled = 0;
+      let pendingDebtBilled = 0;
+      const flavorMap = new Map();
+
+      orderSales.forEach(s => {
+        const g = parseFloat(s.grossTotal) || 0;
+        const p = parseFloat(s.netProfit) || 0;
+        const c = parseFloat(s.totalCost) || 0;
+        const q = parseInt(s.quantity, 10) || 0;
+
+        billed += g;
+        profit += p;
+        costOfSold += c;
+        unitsSold += q;
+
+        if (s.paymentStatus === 'pending') {
+          pendingDebtBilled += g;
+        } else if (s.paymentMethod === 'Tarjeta') {
+          cardBilled += g;
+        } else {
+          cashBilled += g;
+        }
+
+        const fKey = s.productId || s.productName;
+        if (!flavorMap.has(fKey)) {
+          flavorMap.set(fKey, { name: s.productName, unitsSold: 0, billed: 0 });
+        }
+        const fObj = flavorMap.get(fKey);
+        fObj.unitsSold += q;
+        fObj.billed += g;
+      });
+
+      const initialUnits = parseInt(order.totalUnits, 10) || 0;
+      const initialCost = parseFloat(order.totalCost) || 0;
+      const expectedRevenue = parseFloat(order.expectedRevenue) || 0;
+      const remainingUnits = Math.max(0, initialUnits - unitsSold);
+      const sellThroughPct = initialUnits > 0
+        ? parseFloat(Math.min(100, (unitsSold / initialUnits) * 100).toFixed(1))
+        : 0;
+      const roiPct = initialCost > 0
+        ? parseFloat(((profit / initialCost) * 100).toFixed(1))
+        : 0;
+      const recoveryPct = initialCost > 0
+        ? parseFloat(((billed / initialCost) * 100).toFixed(1))
+        : 0;
+      const profitMargin = billed > 0
+        ? parseFloat(((profit / billed) * 100).toFixed(1))
+        : 0;
+      const transactionCount = orderSales.length;
+      const avgTicket = transactionCount > 0
+        ? parseFloat((billed / transactionCount).toFixed(2))
+        : 0;
+
+      const topFlavors = Array.from(flavorMap.values())
+        .sort((a, b) => b.unitsSold - a.unitsSold)
+        .slice(0, 3);
+
+      return {
+        id: order.id,
+        name: order.name,
+        status: order.status || 'active',
+        supplier: order.supplier || '',
+        notes: order.notes || '',
+        createdAt: order.createdAt,
+        closedAt: order.closedAt || null,
+        items: Array.isArray(order.items) ? order.items : [],
+        flavorsCount: Array.isArray(order.items) ? order.items.length : 0,
+        initialUnits,
+        initialCost: parseFloat(initialCost.toFixed(2)),
+        expectedRevenue: parseFloat(expectedRevenue.toFixed(2)),
+        unitsSold,
+        remainingUnits,
+        sellThroughPct,
+        billed: parseFloat(billed.toFixed(2)),
+        profit: parseFloat(profit.toFixed(2)),
+        costOfSold: parseFloat(costOfSold.toFixed(2)),
+        transactionCount,
+        avgTicket,
+        profitMargin,
+        roiPct,
+        recoveryPct,
+        cashBilled: parseFloat(cashBilled.toFixed(2)),
+        cardBilled: parseFloat(cardBilled.toFixed(2)),
+        pendingDebtBilled: parseFloat(pendingDebtBilled.toFixed(2)),
+        topFlavors
+      };
+    });
+
+    return {
+      activeOrder,
+      fallbackOrderId,
+      totalOrdersCount: orders.length,
+      orders
     };
   }
 
