@@ -2,14 +2,14 @@
 <html lang="es" class="dark">
 <head>
   <meta charset="UTF-8">
-  <title>Gestor de Ventas e Inventario</title>
+  <title>Gestor de Ventas e Inventario Multi-Almacén</title>
   
   <!-- Optimización iOS Mobile-First y PWA -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Ventas POS">
-  <meta name="theme-color" content="#0b1120">
+  <meta name="theme-color" content="#070b14">
   <meta name="format-detection" content="telephone=no">
 
   <!-- Iconos PWA e iOS -->
@@ -25,7 +25,7 @@
       theme: {
         extend: {
           colors: {
-            iosBg: '#0b1120',
+            iosBg: '#070b14',
             iosCard: '#1e293b',
           }
         }
@@ -33,58 +33,80 @@
     }
   </script>
 
-  <!-- Estilos Mobile-First y Cupertino Native -->
-  <link rel="stylesheet" href="css/app.css?v=2.2">
+  <!-- Estilos Mobile-First y Cupertino iOS 18 Glassmorphism -->
+  <link rel="stylesheet" href="css/app.css?v=4.2">
 </head>
 <body class="bg-slate-950 text-slate-100">
 
   <!-- Contenedor Maestro App con Safe Areas -->
   <div class="app-container">
 
-    <!-- Toast Flotante de Notificaciones -->
+    <!-- Notificación Estilo Dynamic Island (iOS 18 Pro) -->
     <div id="toastNotice" class="toast-notice">
       <span>✓</span>
       <span>Operación completada</span>
     </div>
 
-    <!-- Header Superior Estilo iOS (Punto Intermedio) -->
+    <!-- Header Superior Estilo iOS 18 Spatial Glass -->
     <header class="ios-header">
-      <div class="flex items-center gap-2.5">
-        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-md shadow-emerald-900/40">
-          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-300 flex items-center justify-center shadow-lg shadow-emerald-500/30 border border-white/25 flex-shrink-0">
+          <svg class="w-5 h-5 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" d="M13 10V3L4 14h7v7l9-11h-7z"/>
           </svg>
         </div>
-        <div>
-          <h1 class="text-sm font-bold tracking-tight text-white leading-tight">Mi Negocio</h1>
-          <span class="text-[10px] text-slate-400">Control de Ventas</span>
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5">
+            <h1 class="text-[15px] font-black tracking-tight text-white leading-none truncate">VapeOS Pro</h1>
+            <button
+              type="button"
+              id="headerRoleBadge"
+              onclick="window.app.openPinAuthModal()"
+              class="btn-pressable px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[9px] font-extrabold text-emerald-300 uppercase tracking-wider whitespace-nowrap"
+              title="Cambiar perfil (Jefe / Trabajador)"
+            >👑 Jefe</button>
+          </div>
+          <div class="flex items-center gap-1.5 mt-1">
+            <span id="headerSyncDot" class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="headerSubtitleText" class="text-[10.5px] text-slate-400 font-medium truncate">Nube & ntfy activos</span>
+          </div>
         </div>
       </div>
 
-      <!-- Resumen Hoy en vivo en la cabecera -->
-      <div class="flex flex-col items-end">
-        <div class="flex items-center gap-1.5">
-          <span class="text-[11px] text-slate-400">Hoy:</span>
-          <span id="headerTodayRevenue" class="text-xs font-bold text-white">0.00€</span>
+      <!-- Cápsulas estilo Apple Wallet en la cabecera (toca para ir a Métricas) -->
+      <div class="flex items-center gap-1.5 cursor-pointer btn-pressable flex-shrink-0" onclick="window.app.switchTab('analytics')" title="Ver métricas">
+        <div id="headerAllTimeStatsPill" class="hidden sm:flex flex-col items-end header-wallet-pill">
+          <div class="flex items-center gap-1">
+            <span class="text-[9.5px] uppercase tracking-wider text-slate-400 font-semibold">Total:</span>
+            <span id="headerAllTimeRevenue" class="text-xs font-black text-indigo-300 tabular-nums">0.00€</span>
+          </div>
+          <span id="headerAllTimeProfit" class="text-[9.5px] text-slate-400 font-semibold tabular-nums">+0.00€ acum.</span>
         </div>
-        <span id="headerTodayProfit" class="text-[10px] text-emerald-400 font-semibold">+0.00€ benef.</span>
+
+        <div class="flex flex-col items-end header-wallet-pill border-emerald-500/35">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[9.5px] uppercase tracking-wider text-slate-300 font-bold">Hoy:</span>
+            <span id="headerTodayRevenue" class="text-[13px] font-black text-white tabular-nums">0.00€</span>
+          </div>
+          <span id="headerTodayProfit" class="text-[10px] text-emerald-400 font-extrabold tabular-nums">+0.00€ benef.</span>
+        </div>
       </div>
     </header>
 
     <!-- Contenido Scrollable de las Pestañas -->
     <main class="app-content">
 
-      <!-- PESTAÑA 1: VENTA RÁPIDA -->
+      <!-- PESTAÑA 1: VENTA RÁPIDA MULTI-ALMACÉN -->
       <section id="view-sales" class="tab-view animate-fade-in">
         <!-- Renderizado dinámico por app.js -->
       </section>
 
-      <!-- PESTAÑA 2: INVENTARIO -->
+      <!-- PESTAÑA 2: INVENTARIO, ALMACENES, RESERVAS Y MENSAJE DE STOCK -->
       <section id="view-inventory" class="tab-view hidden animate-fade-in">
         <!-- Renderizado dinámico por app.js -->
       </section>
 
-      <!-- PESTAÑA 3: ANALÍTICA Y MÉTRICAS -->
+      <!-- PESTAÑA 3: ANALÍTICA Y MÉTRICAS AVANZADAS -->
       <section id="view-analytics" class="tab-view hidden animate-fade-in">
         <!-- Renderizado dinámico por app.js -->
       </section>
@@ -106,7 +128,7 @@
         <span>Vender</span>
       </button>
 
-      <!-- Botón 2: Inventario -->
+      <!-- Botón 2: Inventario y Almacenes -->
       <button class="tab-btn" data-tab="inventory">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -133,124 +155,198 @@
     </nav>
 
     <!-- ============================================================= -->
-    <!-- MODAL 1: CHECKOUT RÁPIDO DE VENTA (BOTTOM SHEET)               -->
+    <!-- MODAL 1: CHECKOUT RÁPIDO DE VENTA MULTI-ALMACÉN               -->
     <!-- ============================================================= -->
     <div id="saleCheckoutModal" class="modal-overlay">
       <div class="modal-sheet">
         <div class="sheet-handle"></div>
 
-        <div class="flex items-start justify-between mb-4">
+        <div class="flex items-start justify-between mb-2.5">
           <div>
-            <h3 id="modalSaleProductName" class="text-lg font-bold text-white leading-tight">Producto</h3>
+            <h3 id="modalSaleProductName" class="text-lg font-extrabold text-white leading-tight">Producto</h3>
             <span id="modalSaleStockBadge" class="text-xs text-slate-400">10 disponibles</span>
           </div>
           <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
         </div>
 
-        <!-- Selector de Cantidad táctil grande -->
-        <div class="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-700/60 mb-3">
-          <label class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-2">Cantidad de Unidades</label>
-          <div class="flex items-center justify-between gap-4">
-            <button 
-              type="button" 
-              onclick="window.app.changeSaleQuantity(-1)"
-              class="btn-pressable w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-2xl flex items-center justify-center border border-slate-600/40"
-            >-</button>
-            <input 
-              type="number" 
-              id="modalSaleQtyInput" 
-              value="1" 
-              min="1" 
-              class="w-20 text-center text-3xl font-black text-white bg-transparent border-0 focus:outline-none"
-              onchange="window.app.changeSaleQuantity(parseInt(this.value, 10) - window.app.saleQuantity)"
-            />
-            <button 
-              type="button" 
-              onclick="window.app.changeSaleQuantity(1)"
-              class="btn-pressable w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-2xl flex items-center justify-center border border-slate-600/40"
-            >+</button>
+        <!-- Selector de Almacén desde el que se realiza la venta -->
+        <div id="modalSaleWarehouseSection" class="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-700/60 mb-2.5">
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Almacén de Salida (Quién vende)</label>
+            <span id="modalSaleGlobalStockHint" class="text-[10px] text-slate-500"></span>
+          </div>
+          <div id="modalSaleWarehousePills" class="warehouse-pills-bar no-scrollbar">
+            <!-- Renderizado dinámico de píldoras de almacén -->
           </div>
         </div>
 
-        <!-- Precio Final y Descuentos al vuelo -->
-        <div class="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-700/60 mb-3">
-          <div class="flex items-center justify-between mb-2">
-            <div>
-              <label class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Precio Final Unitario</label>
-              <span class="text-[10px] text-slate-500">Toca para escribir o usa los atajos</span>
-            </div>
-            <div class="flex items-center gap-1.5">
+        <!-- Selector de Cantidad y Precio en compacto táctil -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
+          <!-- Cantidad -->
+          <div class="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-700/60">
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-1">Cantidad de Unidades</label>
+            <div class="flex items-center justify-between gap-2">
+              <button 
+                type="button" 
+                onclick="window.app.changeSaleQuantity(-1)"
+                class="btn-pressable w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xl flex items-center justify-center border border-slate-600/40"
+              >-</button>
               <input 
                 type="number" 
-                step="any"
-                inputmode="decimal"
-                id="modalSalePriceInput" 
-                onfocus="this.select()"
-                class="w-24 text-right bg-slate-800 text-white font-bold text-lg px-2.5 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:border-emerald-500"
-                oninput="window.app.setSaleUnitPrice(this.value)"
+                id="modalSaleQtyInput" 
+                value="1" 
+                min="1" 
+                class="w-16 text-center text-2xl font-black text-white bg-transparent border-0 focus:outline-none"
+                onchange="window.app.changeSaleQuantity(parseInt(this.value, 10) - window.app.saleQuantity)"
               />
-              <span class="text-white font-bold text-lg">€</span>
+              <button 
+                type="button" 
+                onclick="window.app.changeSaleQuantity(1)"
+                class="btn-pressable w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xl flex items-center justify-center border border-slate-600/40"
+              >+</button>
             </div>
           </div>
-          <!-- Botones rápidos de precio para agilizar en iPhone -->
-          <div class="flex gap-1.5 pt-1.5 border-t border-slate-800/80">
-            <button type="button" onclick="window.app.quickAdjustPrice(-1)" class="btn-pressable flex-1 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">-1€</button>
-            <button type="button" onclick="window.app.setPresetPrice(10)" class="btn-pressable flex-1 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">10€</button>
-            <button type="button" onclick="window.app.setPresetPrice(12)" class="btn-pressable flex-1 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">12€</button>
-            <button type="button" onclick="window.app.setPresetPrice(13)" class="btn-pressable flex-1 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">13€</button>
-            <button type="button" onclick="window.app.quickAdjustPrice(1)" class="btn-pressable flex-1 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">+1€</button>
+
+          <!-- Precio Final Unitario -->
+          <div class="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-700/60">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Precio Final / Ud</label>
+              <div class="flex items-center gap-1">
+                <input 
+                  type="number" 
+                  step="any"
+                  inputmode="decimal"
+                  id="modalSalePriceInput" 
+                  onfocus="this.select()"
+                  class="w-20 text-right bg-slate-800 text-white font-bold text-base px-2 py-1 rounded-lg border border-slate-600 focus:outline-none focus:border-emerald-500"
+                  oninput="window.app.setSaleUnitPrice(this.value)"
+                />
+                <span class="text-white font-bold text-sm">€</span>
+              </div>
+            </div>
+            <div class="flex gap-1">
+              <button type="button" onclick="window.app.quickAdjustPrice(-1)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">-1€</button>
+              <button type="button" onclick="window.app.setPresetPrice(10)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">10€</button>
+              <button type="button" onclick="window.app.setPresetPrice(12)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">12€</button>
+              <button type="button" onclick="window.app.setPresetPrice(13)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">13€</button>
+              <button type="button" onclick="window.app.quickAdjustPrice(1)" class="btn-pressable flex-1 py-1 text-[11px] font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">+1€</button>
+            </div>
           </div>
         </div>
 
-        <!-- Método de Pago (Efectivo como Principal) -->
-        <div class="mb-4">
-          <label class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-2">Método de Pago</label>
-          <div class="flex gap-2">
-            <button 
-              type="button" 
-              id="btnPayCash" 
-              onclick="window.app.setSalePaymentMethod('Efectivo')"
-              class="flex-1 py-3 px-4 rounded-xl border-2 border-emerald-500 bg-emerald-500/20 text-white font-semibold flex items-center justify-center gap-2"
-            >
-              <span class="text-lg">💵</span> Efectivo
-            </button>
-            <button 
-              type="button" 
-              id="btnPayCard" 
-              onclick="window.app.setSalePaymentMethod('Tarjeta')"
-              class="flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium flex items-center justify-center gap-2"
-            >
-              <span class="text-lg">💳</span> Tarjeta
-            </button>
+        <!-- Método de Pago y Estado de Cobro (Cobrado Ahora vs Fiado / Pendiente) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
+          <div>
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-1">Método de Pago</label>
+            <div class="flex gap-1.5">
+              <button 
+                type="button" 
+                id="btnPayCash" 
+                onclick="window.app.setSalePaymentMethod('Efectivo')"
+                class="flex-1 py-2 px-2.5 rounded-xl border-2 border-emerald-500 bg-emerald-500/20 text-white font-semibold text-xs flex items-center justify-center gap-1"
+              >
+                <span>💵</span> Efectivo
+              </button>
+              <button 
+                type="button" 
+                id="btnPayCard" 
+                onclick="window.app.setSalePaymentMethod('Tarjeta')"
+                class="flex-1 py-2 px-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium text-xs flex items-center justify-center gap-1"
+              >
+                <span>💳</span> Tarjeta
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-1">Estado del Pago</label>
+            <div class="flex gap-1.5">
+              <button 
+                type="button" 
+                id="btnSaleStatusPaid" 
+                onclick="window.app.setSalePaymentStatus('paid')"
+                class="flex-1 py-2 px-2.5 rounded-xl border-2 border-emerald-500 bg-emerald-500/20 text-white font-semibold text-xs flex items-center justify-center gap-1"
+              >
+                <span>✅</span> Cobrado Ahora
+              </button>
+              <button 
+                type="button" 
+                id="btnSaleStatusPending" 
+                onclick="window.app.setSalePaymentStatus('pending')"
+                class="flex-1 py-2 px-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium text-xs flex items-center justify-center gap-1"
+              >
+                <span>⏳</span> Fiado / Pendiente
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cliente / Comprador y Nota Concreta -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
+          <div>
+            <label id="labelSaleBuyerInput" class="text-[10px] uppercase tracking-wider text-slate-300 font-bold block mb-1">
+              👤 Cliente / Comprador
+            </label>
+            <input 
+              type="text" 
+              id="modalSaleBuyerInput" 
+              placeholder="Ej: David, Ana (obligatorio si es fiado)..." 
+              class="w-full bg-slate-800/95 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          <div>
+            <label class="text-[10px] uppercase tracking-wider text-slate-300 font-bold block mb-1">
+              📝 Nota Concreta de la Venta
+            </label>
+            <input 
+              type="text" 
+              id="modalSaleNotesInput" 
+              placeholder="Ej: Rebaja amigo, me paga el viernes..." 
+              class="w-full bg-slate-800/95 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-emerald-500"
+            />
           </div>
         </div>
 
         <!-- Resumen Financiero en Tiempo Real -->
-        <div class="bg-slate-800/50 p-3.5 rounded-2xl border border-slate-700/40 mb-4 flex items-center justify-between">
+        <div class="bg-slate-800/60 p-3 rounded-2xl border border-slate-700/50 mb-3 flex items-center justify-between">
           <div>
-            <div class="text-[11px] text-slate-400">Total a Cobrar</div>
+            <div class="text-[10px] text-slate-400">Total Venta</div>
             <div id="modalSaleTotalGross" class="text-2xl font-black text-white">0.00€</div>
+            <div id="modalSaleDiscountBadge" class="text-[10px] text-amber-400 font-semibold hidden"></div>
           </div>
           <div class="text-right">
-            <div class="text-[11px] text-slate-400">Beneficio Neto</div>
-            <div id="modalSaleNetProfit" class="text-lg font-bold text-emerald-400">+0.00€</div>
-            <div class="text-[10px] text-slate-500">Quedarán: <span id="modalSaleRemainingStock" class="font-medium">--</span></div>
+            <div id="modalSaleNetProfitWrap">
+              <div class="text-[10px] text-slate-400">Beneficio Neto</div>
+              <div id="modalSaleNetProfit" class="text-lg font-bold text-emerald-400">+0.00€</div>
+            </div>
+            <div class="text-[10px] text-slate-500">Quedarán libres: <span id="modalSaleRemainingStock" class="font-medium">--</span></div>
           </div>
         </div>
 
-        <!-- Botón Gigante de Cobrar -->
-        <button 
-          id="btnConfirmExecuteSale" 
-          onclick="window.app.confirmExecuteSale()"
-          class="btn-primary btn-pressable"
-        >
-          <span>Cobrar Venta</span>
-        </button>
+        <!-- Botón Principal de Cobrar y Botón Secundario de Reservar sin Cobrar -->
+        <div class="space-y-2">
+          <button 
+            id="btnConfirmExecuteSale" 
+            onclick="window.app.confirmExecuteSale()"
+            class="btn-primary btn-pressable"
+          >
+            <span>Cobrar Venta</span>
+          </button>
+
+          <button 
+            type="button"
+            onclick="window.app.saveSaleModalAsReservation()"
+            class="w-full py-2.5 px-3 rounded-xl border border-purple-500/40 bg-purple-950/25 hover:bg-purple-900/35 text-purple-300 text-xs font-bold flex items-center justify-center gap-1.5 btn-pressable"
+          >
+            <span>📌</span> Reservar estas unidades al cliente (Sin descontar venta aún)
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- ============================================================= -->
-    <!-- MODAL 2: AÑADIR / EDITAR PRODUCTO (BOTTOM SHEET)               -->
+    <!-- MODAL 2: AÑADIR / EDITAR PRODUCTO MULTI-ALMACÉN               -->
     <!-- ============================================================= -->
     <div id="productFormModal" class="modal-overlay">
       <div class="modal-sheet">
@@ -263,64 +359,68 @@
 
         <form onsubmit="event.preventDefault(); window.app.saveProductFromModal();" class="space-y-3">
           <div>
-            <label class="text-xs text-slate-400 block mb-1">Nombre del Producto *</label>
+            <label class="text-xs text-slate-400 block mb-1">Nombre del Producto / Sabor *</label>
             <input 
               type="text" 
               id="inputProdName" 
               required 
-              placeholder="Ej: Camiseta Negra Talla L" 
+              placeholder="Ej: Coco Loco 🥥🌴" 
               class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
             />
           </div>
 
-          <div>
-            <label class="text-xs text-slate-400 block mb-1">Categoría</label>
-            <input 
-              type="text" 
-              id="inputProdCategory" 
-              placeholder="Ej: Ropa, Accesorios, Hogar..." 
-              class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
-            />
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-3 gap-2.5">
             <div>
-              <label class="text-xs text-slate-400 block mb-1">Precio de Coste (€) *</label>
+              <label class="text-xs text-slate-400 block mb-1">Categoría</label>
+              <input 
+                type="text" 
+                id="inputProdCategory" 
+                placeholder="Sabores" 
+                class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+              />
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Coste (€) *</label>
               <input 
                 type="number" 
                 step="0.01" 
                 id="inputProdCost" 
                 required 
-                placeholder="0.00" 
-                class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+                placeholder="6.70" 
+                class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
               />
             </div>
 
             <div>
-              <label class="text-xs text-slate-400 block mb-1">PVP Habitual (€) *</label>
+              <label class="text-xs text-slate-400 block mb-1">PVP (€) *</label>
               <input 
                 type="number" 
                 step="0.01" 
                 id="inputProdSell" 
                 required 
-                placeholder="0.00" 
-                class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+                placeholder="13.00" 
+                class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
               />
             </div>
           </div>
 
-          <div>
-            <label class="text-xs text-slate-400 block mb-1">Stock Inicial Disponible *</label>
-            <input 
-              type="number" 
-              id="inputProdStock" 
-              required 
-              placeholder="10" 
-              class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
-            />
+          <!-- Stock Desglosado por cada Almacén -->
+          <div class="bg-slate-900/80 p-3.5 rounded-2xl border border-slate-700/60">
+            <div class="flex items-center justify-between mb-2.5">
+              <div>
+                <label class="text-xs font-bold text-white block">Stock por Almacén / Trabajador</label>
+                <span class="text-[10px] text-slate-400">Asigna cuántas unidades hay en cada ubicación</span>
+              </div>
+              <span id="productModalTotalStockBadge" class="badge badge-ok-stock text-xs">Total: 0 uds</span>
+            </div>
+
+            <div id="productModalWarehouseStocksContainer" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+              <!-- Renderizado dinámico de inputs por almacén -->
+            </div>
           </div>
 
-          <div class="pt-3 space-y-2">
+          <div class="pt-2 space-y-2">
             <button type="submit" class="btn-primary btn-pressable">
               <span>Guardar Producto</span>
             </button>
@@ -336,8 +436,244 @@
           </div>
         </form>
       </div>
+    </div>
+
     <!-- ============================================================= -->
-    <!-- MODAL 3: HISTORIAL DE VENTAS Y CANCELACIÓN (BOTTOM SHEET)      -->
+    <!-- MODAL 3: CREAR / EDITAR ALMACÉN O CASA DE TRABAJADOR          -->
+    <!-- ============================================================= -->
+    <div id="warehouseFormModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 id="warehouseModalTitle" class="text-lg font-bold text-white">Nuevo Almacén / Trabajador</h3>
+            <span class="text-xs text-slate-400">Registra una casa de trabajador y su comisión</span>
+          </div>
+          <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); window.app.saveWarehouseFromModal();" class="space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Nombre del Almacén o Ubicación *</label>
+              <input 
+                type="text" 
+                id="inputWhName" 
+                required 
+                placeholder="Ej: Casa de Carlos..." 
+                class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+              />
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Nombre del Trabajador / Encargado</label>
+              <input 
+                type="text" 
+                id="inputWhWorker" 
+                placeholder="Ej: Carlos, Marcos..." 
+                class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400 block mb-1.5">Icono Identificativo</label>
+            <div id="warehouseIconSelector" class="grid grid-cols-6 gap-2">
+              <!-- Renderizado por JS -->
+            </div>
+          </div>
+
+          <!-- Configuración Modificable de Comisión en Vapers de Regalo -->
+          <div class="bg-emerald-950/25 p-3 rounded-2xl border border-emerald-500/35">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-bold text-emerald-300">🎁 Comisión del Trabajador (Vapers de Regalo)</span>
+              <span class="text-[10px] text-slate-400">Modificable</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="text-[10px] text-slate-300 block mb-1">Cada cuántos vapers vendidos:</label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  id="inputWhRewardEveryN" 
+                  value="5"
+                  oninput="window.app.updateWhRewardPreviewText()"
+                  class="w-full bg-slate-900 text-white font-black text-center px-3 py-2 rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label class="text-[10px] text-slate-300 block mb-1">Cuántos vapers le regalas:</label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  id="inputWhRewardFreeUnits" 
+                  value="1"
+                  oninput="window.app.updateWhRewardPreviewText()"
+                  class="w-full bg-slate-900 text-emerald-400 font-black text-center px-3 py-2 rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+            <div id="whRewardPreviewText" class="text-[11px] text-emerald-300/90 mt-2 font-medium text-center">
+              Por cada 5 vapers que venda este trabajador, le regalas 1 vaper gratis.
+            </div>
+          </div>
+
+          <!-- PIN de Acceso del Trabajador (Solo en almacenes secundarios) -->
+          <div id="whWorkerPinGroup" class="bg-indigo-950/25 p-3 rounded-2xl border border-indigo-500/35">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-xs font-bold text-indigo-300">🔐 PIN de Acceso del Trabajador (4 dígitos)</label>
+              <button
+                type="button"
+                onclick="window.app.randomizeWarehousePinInput()"
+                class="text-[10px] font-bold text-indigo-300 hover:text-white underline"
+              >🎲 Generar nuevo</button>
+            </div>
+            <input
+              type="text"
+              inputmode="numeric"
+              maxlength="8"
+              id="inputWhWorkerPin"
+              placeholder="Ej: 2580"
+              class="w-full bg-slate-900 text-white font-black tracking-widest text-center px-3 py-2 rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-indigo-500"
+            />
+            <div class="text-[10px] text-slate-400 mt-1.5">
+              Con este PIN (o su enlace directo), el trabajador solo verá su almacén y podrá registrar ventas que te llegarán por ntfy.
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Notas o Dirección (Opcional)</label>
+            <input 
+              type="text" 
+              id="inputWhNotes" 
+              placeholder="Ej: Zona Norte, teléfono o detalle..." 
+              class="w-full bg-slate-800 text-white px-3.5 py-2 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+            />
+          </div>
+
+          <div class="pt-1 space-y-2">
+            <button type="submit" class="btn-primary btn-pressable">
+              <span>Guardar Almacén</span>
+            </button>
+
+            <button 
+              type="button" 
+              id="btnDeleteWarehouse" 
+              onclick="window.app.deleteCurrentWarehouse()"
+              class="w-full py-2.5 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-xl border border-rose-900/40 bg-rose-950/20 text-center hidden"
+            >
+              🗑️ Eliminar Almacén (Devolver su stock al Principal)
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 4: REPARTIR / TRANSFERIR STOCK DE UN PRODUCTO           -->
+    <!-- ============================================================= -->
+    <div id="transferStockModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-lg font-bold text-white">🚚 Repartir / Mover Stock</h3>
+            <span class="text-xs text-slate-400">Transfiere unidades entre almacenes sin perder el control</span>
+          </div>
+          <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); window.app.confirmSingleTransferFromModal();" class="space-y-3">
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Producto / Sabor a mover</label>
+            <select 
+              id="transferModalProductSelect" 
+              onchange="window.app.onTransferModalFieldChange()"
+              class="w-full bg-slate-800 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-sm"
+            ></select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Desde (Origen)</label>
+              <select 
+                id="transferModalFromWh" 
+                onchange="window.app.onTransferModalFieldChange()"
+                class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-xs font-semibold"
+              ></select>
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Hacia (Destino)</label>
+              <select 
+                id="transferModalToWh" 
+                onchange="window.app.onTransferModalFieldChange()"
+                class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-xs font-semibold"
+              ></select>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/80 p-3 rounded-2xl border border-slate-700/60">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs text-slate-400 font-semibold">Cantidad a enviar</span>
+              <span id="transferModalAvailableBadge" class="text-xs font-bold text-emerald-400">Disponible: 0 uds</span>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+              <button 
+                type="button" 
+                onclick="window.app.adjustTransferModalQty(-1)"
+                class="btn-pressable w-11 h-11 rounded-xl bg-slate-800 text-white font-bold text-xl flex items-center justify-center border border-slate-600/40"
+              >-</button>
+              <input 
+                type="number" 
+                id="transferModalQtyInput" 
+                value="1" 
+                min="1" 
+                class="w-20 text-center text-2xl font-black text-white bg-transparent border-0 focus:outline-none"
+              />
+              <button 
+                type="button" 
+                onclick="window.app.adjustTransferModalQty(1)"
+                class="btn-pressable w-11 h-11 rounded-xl bg-slate-800 text-white font-bold text-xl flex items-center justify-center border border-slate-600/40"
+              >+</button>
+              <button 
+                type="button" 
+                onclick="window.app.setTransferModalMaxQty()"
+                class="btn-pressable px-3 py-2 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-xs font-bold"
+              >Máx</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">Nota del reparto (Opcional)</label>
+            <input 
+              type="text" 
+              id="transferModalNotes" 
+              placeholder="Ej: Entrega semanal a domicilio..." 
+              class="w-full bg-slate-800 text-white px-3.5 py-2 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500 text-xs"
+            />
+          </div>
+
+          <div class="pt-1 space-y-2">
+            <button type="submit" id="btnConfirmSingleTransfer" class="btn-primary btn-pressable">
+              <span>🚚 Confirmar Envío de Stock</span>
+            </button>
+            <button 
+              type="button" 
+              onclick="window.app.openBatchTransferSubView()"
+              class="w-full py-2.5 text-xs font-semibold text-indigo-300 hover:text-white rounded-xl border border-indigo-500/30 bg-indigo-950/30 text-center"
+            >
+              📦 ¿Quieres repartir varios sabores a la vez? Abrir Reparto por Lote
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 5: HISTORIAL DE VENTAS Y CANCELACIÓN (BOTTOM SHEET)      -->
     <!-- ============================================================= -->
     <div id="salesHistoryModal" class="modal-overlay">
       <div class="modal-sheet">
@@ -345,13 +681,145 @@
 
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h3 class="text-base font-bold text-white">Historial y Cancelación de Ventas</h3>
-            <span class="text-xs text-slate-400">Si te equivocas, cancela la venta aquí para reponer stock</span>
+            <h3 class="text-base font-bold text-white">Historial, Fiados y Cancelación de Ventas</h3>
+            <span class="text-xs text-slate-400">Cobra fiados, edita notas o anula ventas erróneas</span>
           </div>
           <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
         </div>
 
-        <div id="salesHistoryModalContent" class="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+        <div id="salesHistoryModalContent" class="space-y-2.5 max-h-[65vh] overflow-y-auto pr-1">
+          <!-- Renderizado dinámico -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 6: CREAR Y GESTIONAR RESERVAS DE CLIENTES               -->
+    <!-- ============================================================= -->
+    <div id="reservationFormModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-lg font-bold text-white">📌 Reservar Sabores a un Cliente</h3>
+            <span class="text-xs text-slate-400">Aparta unidades para que nadie las venda por error</span>
+          </div>
+          <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); window.app.confirmReservationFromModal();" class="space-y-2.5 mb-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label class="text-xs text-slate-300 font-bold block mb-1">👤 Nombre del Cliente *</label>
+              <input 
+                type="text" 
+                id="resModalCustomerName" 
+                required 
+                placeholder="Ej: Sergio, Laura..." 
+                class="w-full bg-slate-800 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-purple-500"
+              />
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-300 font-bold block mb-1">🏢 Almacén donde se aparta</label>
+              <select 
+                id="resModalWarehouseSelect" 
+                onchange="window.app.onResModalFieldChange()"
+                class="w-full bg-slate-800 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs font-semibold focus:outline-none focus:border-purple-500"
+              ></select>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300 font-bold block mb-1">🍓 Sabor a Reservar</label>
+            <select 
+              id="resModalProductSelect" 
+              onchange="window.app.onResModalFieldChange()"
+              class="w-full bg-slate-800 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs font-semibold focus:outline-none focus:border-purple-500"
+            ></select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5">
+            <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-700/60">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] text-slate-400 font-bold uppercase">Unidades</span>
+                <span id="resModalAvailBadge" class="text-[10px] text-emerald-400 font-bold">Libres: 0</span>
+              </div>
+              <div class="flex items-center justify-between gap-1">
+                <button type="button" onclick="window.app.stepResModalQty(-1)" class="btn-pressable w-8 h-8 rounded-lg bg-slate-800 text-white font-bold">-</button>
+                <input type="number" id="resModalQtyInput" value="1" min="1" class="w-12 text-center text-base font-black text-white bg-transparent border-0 focus:outline-none"/>
+                <button type="button" onclick="window.app.stepResModalQty(1)" class="btn-pressable w-8 h-8 rounded-lg bg-slate-800 text-white font-bold">+</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-700/60">
+              <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Precio Acordado / Ud (€)</label>
+              <input 
+                type="number" 
+                step="any" 
+                id="resModalPriceInput" 
+                value="13.00" 
+                class="w-full bg-slate-800 text-white font-bold text-center py-1.5 rounded-lg border border-slate-700 text-sm focus:outline-none focus:border-purple-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <input 
+              type="text" 
+              id="resModalNotesInput" 
+              placeholder="📝 Nota opcional (ej. Viene el sábado por la tarde)..." 
+              class="w-full bg-slate-800 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          <button type="submit" id="btnConfirmResModal" class="btn-primary btn-pressable" style="background: linear-gradient(135deg, #9333ea, #6366f1);">
+            <span>📌 Guardar Reserva</span>
+          </button>
+        </form>
+
+        <!-- Lista rápida de reservas activas para entregar/cobrar o liberar -->
+        <div class="pt-2.5 border-t border-slate-800">
+          <div class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">Reservas Activas Actuales</div>
+          <div id="resModalActiveListContainer" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+            <!-- Renderizado dinámico -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 7: LIQUIDACIÓN DE TRABAJADOR / REGALO DE VAPER / NOTA   -->
+    <!-- ============================================================= -->
+    <div id="workerActionModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+        <div id="workerActionModalBody">
+          <!-- Renderizado dinámico según la acción (Entregar Vaper Gratis, Liquidar Dinero o Editar Nota de Venta) -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 8: CAMBIO DE PERFIL / ACCESO POR PIN (JEFE / TRABAJADOR) -->
+    <!-- ============================================================= -->
+    <div id="pinAuthModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+        <div id="pinAuthModalBody">
+          <!-- Renderizado dinámico -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 9: INVITAR Y COMPARTIR ENLACE A TRABAJADOR             -->
+    <!-- ============================================================= -->
+    <div id="workerInviteModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+        <div id="workerInviteModalBody">
           <!-- Renderizado dinámico -->
         </div>
       </div>
@@ -359,7 +827,9 @@
 
   </div>
 
+  <!-- SDK oficial de Supabase para Realtime + PostgreSQL en la nube -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- Inicialización modular mediante ES Modules -->
-  <script type="module" src="js/app.js?v=2.2"></script>
+  <script type="module" src="js/app.js?v=4.2"></script>
 </body>
 </html>

@@ -1,21 +1,28 @@
 /* 
-  Estilos Mobile-First y Totalmente Responsive (iPhone 17, iPad, Mac y PC)
-  Inspirados en iOS Human Interface Guidelines y macOS Cupertino.
+  ==========================================================================
+  GESTOR DE VENTAS E INVENTARIO v4.0 — iOS 18 SPATIAL GLASS DESIGN SYSTEM
+  Inspirado en Apple Human Interface Guidelines (iOS 18), Apple Wallet y Revolut.
+  ==========================================================================
 */
 
 :root {
-  --ios-bg: #0b1120;
-  --ios-card-bg: rgba(30, 41, 59, 0.85);
-  --ios-card-border: rgba(255, 255, 255, 0.08);
-  --ios-primary: #10b981; /* Verde esmeralda */
-  --ios-primary-hover: #059669;
-  --ios-accent: #6366f1;  /* Índigo */
+  --ios-bg: #03060c;
+  --ios-surface: #0a101d;
+  --ios-card-bg: rgba(18, 26, 42, 0.72);
+  --ios-card-border: rgba(255, 255, 255, 0.085);
+  --ios-card-specular: rgba(255, 255, 255, 0.16);
+  --ios-primary: #10b981;
+  --ios-primary-glow: rgba(16, 185, 129, 0.42);
+  --ios-accent: #6366f1;
+  --ios-cyan: #06b6d4;
   --ios-text: #f8fafc;
   --ios-text-secondary: #94a3b8;
   --ios-danger: #f43f5e;
   --ios-warning: #f59e0b;
-  --ios-card-radius: 18px;
-  --ios-btn-radius: 14px;
+  --ios-card-radius: 22px;
+  --ios-btn-radius: 16px;
+  --ios-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ios-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 * {
@@ -24,8 +31,9 @@
   user-select: none;
 }
 
-input, textarea {
+input, textarea, select {
   user-select: auto;
+  font-family: inherit;
 }
 
 html, body {
@@ -36,11 +44,52 @@ html, body {
   overflow: hidden;
   background-color: var(--ios-bg);
   color: var(--ios-text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.012em;
 }
 
-/* Contenedor maestro adaptativo: 100% fluido en iPhone 17 y centrado ergonómico en iPad/PC */
+/* Números tabulares financieros estilo Apple Wallet / Revolut */
+.tabular-nums,
+#headerTodayRevenue,
+#headerTodayProfit,
+#headerAllTimeRevenue,
+#headerAllTimeProfit,
+#modalSaleTotalGross,
+#modalSaleNetProfit,
+.badge,
+.warehouse-pill {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ocultar scrollbars en barras horizontales */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ==========================================================================
+   FONDO OLED ESPACIAL CON AURORA DINÁMICA ANIMADA
+   ========================================================================== */
+@keyframes ambientAurora {
+  0% {
+    transform: translate3d(-4%, -2%, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(4%, 3%, 0) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-2%, 4%, 0) scale(0.96);
+    opacity: 0.8;
+  }
+}
+
 .app-container {
   display: flex;
   flex-direction: column;
@@ -49,210 +98,459 @@ html, body {
   max-width: 100%;
   margin: 0 auto;
   position: relative;
-  background-color: #0b1120;
+  background-color: #03060c;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.app-container::before {
+  content: "";
+  position: absolute;
+  top: -18%;
+  left: -15%;
+  width: 75%;
+  height: 55%;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.14) 0%, rgba(6, 182, 212, 0.06) 45%, transparent 72%);
+  filter: blur(45px);
+  z-index: -1;
+  pointer-events: none;
+  animation: ambientAurora 14s ease-in-out infinite alternate;
+}
+
+.app-container::after {
+  content: "";
+  position: absolute;
+  bottom: -15%;
+  right: -15%;
+  width: 75%;
+  height: 55%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.13) 0%, rgba(168, 85, 247, 0.05) 45%, transparent 72%);
+  filter: blur(50px);
+  z-index: -1;
+  pointer-events: none;
+  animation: ambientAurora 18s ease-in-out infinite alternate-reverse;
 }
 
 @media (min-width: 1024px) {
   .app-container {
-    max-width: 1100px;
-    border-left: 1px solid rgba(255, 255, 255, 0.05);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 0 60px rgba(0, 0, 0, 0.8);
+    max-width: 1200px;
+    border-left: 1px solid rgba(255, 255, 255, 0.07);
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 0 0 100px rgba(0, 0, 0, 0.92);
   }
 }
 
-/* Header superior iOS con punto intermedio de altura y Safe Area */
+/* ==========================================================================
+   CABECERA SUPERIOR TRASLÚCIDA iOS 18
+   ========================================================================== */
 .ios-header {
-  padding-top: calc(env(safe-area-inset-top, 44px) + 6px);
+  padding-top: calc(env(safe-area-inset-top, 42px) + 6px);
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
-  padding-bottom: 10px;
-  background: #0f172a;
-  border-bottom: 1px solid var(--ios-card-border);
+  padding-bottom: 11px;
+  background: rgba(8, 13, 24, 0.76);
+  backdrop-filter: saturate(190%) blur(28px);
+  -webkit-backdrop-filter: saturate(190%) blur(28px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
 
-/* Contenido desplazable responsive */
+.header-wallet-pill {
+  background: linear-gradient(145deg, rgba(22, 32, 52, 0.88), rgba(11, 17, 30, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.35);
+  border-radius: 14px;
+  padding: 5px 11px;
+  transition: transform 0.2s var(--ios-spring), border-color 0.2s ease;
+}
+
+.header-wallet-pill:hover {
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+/* ==========================================================================
+   CONTENIDO SCROLLABLE FLUIDO
+   ========================================================================== */
 .app-content {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 16px max(16px, env(safe-area-inset-right)) 100px max(16px, env(safe-area-inset-left));
+  padding: 15px max(14px, env(safe-area-inset-right)) 118px max(14px, env(safe-area-inset-left));
+  scroll-behavior: smooth;
 }
 
 @media (min-width: 768px) {
   .app-content {
-    padding-left: 24px;
-    padding-right: 24px;
-    padding-bottom: 110px;
+    padding: 22px 26px 125px 26px;
   }
 }
 
-/* Bottom Tab Bar adaptativa (Barra móvil en iPhone, Pastilla flotante en iPad/PC) */
+/* ==========================================================================
+   FLOATING GLASS DOCK (BARRA DE NAVEGACIÓN INFERIOR FLOTANTE iOS 18)
+   ========================================================================== */
 .ios-tab-bar {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: 12px;
+  right: 12px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  background: rgba(15, 23, 42, 0.94);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-top: 1px solid var(--ios-card-border);
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-  padding-top: 8px;
+  gap: 4px;
+  background: rgba(12, 18, 32, 0.84);
+  backdrop-filter: saturate(200%) blur(32px);
+  -webkit-backdrop-filter: saturate(200%) blur(32px);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 26px;
+  padding: 6px;
   z-index: 50;
-  transition: all 0.3s ease;
+  box-shadow:
+    0 16px 40px -6px rgba(0, 0, 0, 0.78),
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
+  transition: all 0.35s var(--ios-spring);
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .ios-tab-bar {
     left: 50%;
+    right: auto;
     transform: translateX(-50%);
     width: auto;
-    min-width: 480px;
-    max-width: 580px;
-    bottom: 20px;
-    border-radius: 28px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-    padding-bottom: 8px;
-    padding-left: 16px;
-    padding-right: 16px;
+    min-width: 470px;
+    max-width: 560px;
+    bottom: 16px;
+    border-radius: 30px;
+    padding: 7px 10px;
   }
 }
 
 .tab-btn {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  background: none;
+  background: transparent;
   border: none;
-  color: var(--ios-text-secondary);
-  font-size: 11px;
-  font-weight: 500;
+  border-radius: 20px;
+  color: #8b9bb4;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: all 0.15s ease;
-  padding: 4px 0;
+  padding: 6px 4px;
+  transition: all 0.28s var(--ios-spring);
+}
+
+.tab-btn:active {
+  transform: scale(0.91);
 }
 
 .tab-btn.active {
-  color: var(--ios-primary);
-  font-weight: 600;
+  color: #ffffff;
+  font-weight: 700;
+  background: linear-gradient(145deg, rgba(16, 185, 129, 0.24), rgba(6, 182, 212, 0.12));
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
+    0 4px 14px rgba(16, 185, 129, 0.18);
 }
 
 .tab-btn.active svg {
-  transform: scale(1.1);
-  stroke: var(--ios-primary);
+  transform: translateY(-1px) scale(1.1);
+  stroke: #34d399;
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.6));
 }
 
 .tab-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 21px;
+  height: 21px;
   stroke-width: 2.2;
-  transition: transform 0.15s ease;
+  transition: all 0.28s var(--ios-spring);
 }
 
-/* Tarjetas Cupertino */
+/* ==========================================================================
+   TARJETAS ESPACIALES iOS 18 (GLASSMORPHISM + SPECULAR HIGHLIGHT)
+   ========================================================================== */
+@keyframes iosCardAppear {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .ios-card {
+  position: relative;
   background: var(--ios-card-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: saturate(190%) blur(26px);
+  -webkit-backdrop-filter: saturate(190%) blur(26px);
   border: 1px solid var(--ios-card-border);
   border-radius: var(--ios-card-radius);
-  padding: 16px;
+  padding: 15px;
   margin-bottom: 12px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow:
+    0 12px 32px -8px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 0 var(--ios-card-specular);
+  transition:
+    transform 0.22s var(--ios-spring),
+    box-shadow 0.22s var(--ios-spring),
+    border-color 0.22s ease;
+  animation: iosCardAppear 0.32s var(--ios-spring) both;
 }
 
 @media (min-width: 768px) {
   .ios-card:hover {
-    border-color: rgba(255, 255, 255, 0.15);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow:
+      0 16px 38px -8px rgba(0, 0, 0, 0.65),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.22);
   }
 }
 
-/* Botones con respuesta táctil */
+.ios-card-glow-emerald {
+  background: linear-gradient(150deg, rgba(6, 78, 59, 0.48) 0%, rgba(12, 20, 35, 0.88) 65%, rgba(8, 14, 26, 0.94) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.36);
+  box-shadow:
+    0 14px 36px -8px rgba(16, 185, 129, 0.16),
+    inset 0 1px 0 0 rgba(110, 231, 183, 0.25);
+}
+
+.ios-card-glow-indigo {
+  background: linear-gradient(150deg, rgba(49, 46, 129, 0.46) 0%, rgba(12, 20, 35, 0.88) 65%, rgba(8, 14, 26, 0.94) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.36);
+  box-shadow:
+    0 14px 36px -8px rgba(99, 102, 241, 0.16),
+    inset 0 1px 0 0 rgba(165, 180, 252, 0.25);
+}
+
+.ios-card-glow-cyan {
+  background: linear-gradient(150deg, rgba(8, 51, 68, 0.48) 0%, rgba(12, 20, 35, 0.88) 65%, rgba(8, 14, 26, 0.94) 100%);
+  border: 1px solid rgba(6, 182, 212, 0.36);
+  box-shadow:
+    0 14px 36px -8px rgba(6, 182, 212, 0.16),
+    inset 0 1px 0 0 rgba(103, 232, 249, 0.25);
+}
+
+.ios-card-glow-amber {
+  background: linear-gradient(150deg, rgba(120, 53, 15, 0.44) 0%, rgba(12, 20, 35, 0.88) 65%, rgba(8, 14, 26, 0.94) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  box-shadow:
+    0 14px 36px -8px rgba(245, 158, 11, 0.15),
+    inset 0 1px 0 0 rgba(252, 211, 77, 0.24);
+}
+
+/* ==========================================================================
+   ORBES DE SABOR Y MINI BARRAS DE STOCK (APPLE STORE / REVOLUT CARDS)
+   ========================================================================== */
+.flavor-orb {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.25s var(--ios-bounce);
+}
+
+.product-pos-card:hover .flavor-orb {
+  transform: scale(1.08) rotate(-3deg);
+}
+
+.stock-mini-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.stock-mini-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s var(--ios-spring);
+}
+
+/* ==========================================================================
+   PÍLDORAS HORIZONTALES DE ALMACENES (iOS 18 CAPSULES)
+   ========================================================================== */
+.warehouse-pills-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 1px 5px 1px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.warehouse-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8.5px 14px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(20, 29, 47, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 10px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: all 0.22s var(--ios-spring);
+  flex-shrink: 0;
+}
+
+.warehouse-pill:hover {
+  background: rgba(34, 48, 74, 0.9);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.warehouse-pill.active {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.32), rgba(5, 150, 105, 0.45));
+  color: #ffffff;
+  border-color: rgba(52, 211, 153, 0.75);
+  box-shadow:
+    0 6px 18px -3px rgba(16, 185, 129, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.warehouse-pill.active-indigo {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.34), rgba(79, 70, 229, 0.46));
+  color: #ffffff;
+  border-color: rgba(129, 140, 248, 0.75);
+  box-shadow:
+    0 6px 18px -3px rgba(99, 102, 241, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+/* ==========================================================================
+   FÍSICA TÁCTIL Y BOTONES NATIVOS iOS 18
+   ========================================================================== */
 .btn-pressable {
-  transition: transform 0.08s ease, opacity 0.08s ease;
+  transition:
+    transform 0.18s var(--ios-spring),
+    opacity 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .btn-pressable:active {
-  transform: scale(0.96);
-  opacity: 0.9;
+  transform: scale(0.95);
+  opacity: 0.92;
 }
 
-/* Botón principal grande */
 .btn-primary {
   width: 100%;
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: #ffffff;
-  font-weight: 600;
-  font-size: 16px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
   padding: 14px 20px;
   border-radius: var(--ios-btn-radius);
-  border: none;
+  border: 1px solid rgba(110, 231, 183, 0.35);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+  box-shadow:
+    0 10px 24px -4px rgba(16, 185, 129, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-/* Segmented Control iOS */
+.btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 12px 28px -3px rgba(16, 185, 129, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+.btn-primary:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Segmented Control iOS 18 */
 .ios-segmented {
   display: flex;
-  background: rgba(30, 41, 59, 0.7);
-  border-radius: 12px;
-  padding: 3px;
-  border: 1px solid var(--ios-card-border);
-  margin-bottom: 16px;
+  background: rgba(11, 17, 30, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 15px;
+  padding: 3.5px;
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  margin-bottom: 14px;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 
 .segmented-option {
   flex: 1;
   text-align: center;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ios-text-secondary);
-  border-radius: 9px;
+  padding: 8.5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8b9bb4;
+  border-radius: 11.5px;
   cursor: pointer;
-  transition: all 0.15s ease;
-  border: none;
+  transition: all 0.24s var(--ios-spring);
+  border: 1px solid transparent;
   background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.segmented-option:hover {
+  color: #e2e8f0;
 }
 
 .segmented-option.active {
-  background: #334155;
+  background: linear-gradient(145deg, rgba(35, 49, 76, 0.95), rgba(24, 34, 54, 0.95));
   color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  font-weight: 700;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
-/* Modales adaptativos (Bottom Sheet en móvil, Modal centrado en iPad/PC) */
+/* ==========================================================================
+   BOTTOM SHEETS Y MODALES NATIVOS iOS 18
+   ========================================================================== */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(6px);
+  background: rgba(2, 5, 14, 0.72);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
   z-index: 100;
   display: flex;
-  align-items: flex-end; /* En móvil sale desde abajo */
+  align-items: flex-end;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.28s var(--ios-spring);
 }
 
 .modal-overlay.active {
@@ -261,142 +559,392 @@ html, body {
 }
 
 .modal-sheet {
-  background: #1e293b;
+  background: linear-gradient(180deg, rgba(20, 29, 48, 0.96) 0%, rgba(10, 15, 28, 0.98) 100%);
+  backdrop-filter: saturate(200%) blur(32px);
+  -webkit-backdrop-filter: saturate(200%) blur(32px);
   width: 100%;
   max-width: 100%;
-  border-top-left-radius: 24px;
-  border-top-right-radius: 24px;
-  padding: 20px 20px max(24px, env(safe-area-inset-bottom)) 20px;
-  max-height: 88dvh;
+  border-top-left-radius: 30px;
+  border-top-right-radius: 30px;
+  padding: 16px 18px max(26px, env(safe-area-inset-bottom)) 18px;
+  max-height: 91dvh;
   overflow-y: auto;
-  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
-  transform: translateY(100%);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 -16px 50px rgba(0, 0, 0, 0.78),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(102%);
+  transition: transform 0.38s var(--ios-spring);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .modal-overlay.active .modal-sheet {
   transform: translateY(0);
 }
 
-/* Adaptación a Tablet / Desktop */
 @media (min-width: 640px) {
   .modal-overlay {
-    align-items: center; /* Centrado en pantalla grande */
+    align-items: center;
     padding: 20px;
   }
   .modal-sheet {
-    max-width: 520px;
-    border-radius: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    transform: scale(0.92) translateY(20px);
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    max-width: 550px;
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    transform: scale(0.93) translateY(18px);
+    transition: transform 0.34s var(--ios-spring);
   }
   .modal-overlay.active .modal-sheet {
     transform: scale(1) translateY(0);
   }
 }
 
-/* Handle del Bottom Sheet */
 .sheet-handle {
-  width: 38px;
-  height: 4px;
-  background: #475569;
-  border-radius: 2px;
-  margin: 0 auto 16px auto;
+  width: 42px;
+  height: 5px;
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  margin: 0 auto 14px auto;
 }
 
 @media (min-width: 640px) {
   .sheet-handle {
-    display: none; /* No necesario en ventanas centradas */
+    display: none;
   }
 }
 
-/* Badges */
+/* ==========================================================================
+   DYNAMIC ISLAND NOTIFICATION TOAST (iOS 18 PRO)
+   ========================================================================== */
+.toast-notice {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 14px) + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-130px) scale(0.75);
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 11px 20px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.85),
+    0 0 24px rgba(16, 185, 129, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  z-index: 250;
+  opacity: 0;
+  transition: all 0.42s var(--ios-bounce);
+  pointer-events: none;
+  max-width: 92vw;
+  text-align: center;
+}
+
+.toast-notice.show {
+  transform: translateX(-50%) translateY(0) scale(1);
+  opacity: 1;
+}
+
+/* ==========================================================================
+   BADGES Y ETIQUETAS CÁPSULA
+   ========================================================================== */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 600;
+  gap: 4px;
+  padding: 2.5px 8.5px;
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .badge-low-stock {
   background: rgba(244, 63, 94, 0.18);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.35);
 }
 
 .badge-ok-stock {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.32);
 }
 
 .badge-payment-card {
-  background: rgba(99, 102, 241, 0.18);
-  color: #818cf8;
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
 }
 
 .badge-payment-cash {
-  background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
-/* Toast de notificación rápida */
-.toast-notice {
-  position: absolute;
-  top: calc(env(safe-area-inset-top, 44px) + 24px);
-  left: 50%;
-  transform: translateX(-50%) translateY(-100px);
-  background: rgba(15, 23, 42, 0.95);
-  color: #ffffff;
-  border: 1px solid var(--ios-primary);
-  padding: 10px 18px;
-  border-radius: 30px;
-  font-size: 13px;
-  font-weight: 600;
+.badge-warehouse {
+  background: rgba(30, 41, 59, 0.85);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.badge-fiado {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+.badge-reserved {
+  background: rgba(168, 85, 247, 0.22);
+  color: #d8b4fe;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+}
+
+/* ==========================================================================
+   BARRAS DE PROGRESO Y GRÁFICAS INTERACTIVAS
+   ========================================================================== */
+.progress-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(9, 14, 26, 0.92);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.progress-fill-emerald {
+  height: 100%;
+  background: linear-gradient(90deg, #059669, #10b981, #34d399);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+  transition: width 0.55s var(--ios-spring);
+}
+
+.progress-fill-indigo {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #6366f1, #818cf8);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.45);
+  transition: width 0.55s var(--ios-spring);
+}
+
+.progress-fill-amber {
+  height: 100%;
+  background: linear-gradient(90deg, #d97706, #f59e0b, #fbbf24);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.45);
+  transition: width 0.55s var(--ios-spring);
+}
+
+/* Gráfica de barras CSS de últimos 7 días */
+.chart-7days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  align-items: end;
+  height: 132px;
+  padding-top: 18px;
+}
+
+.chart-col {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-  z-index: 150;
-  opacity: 0;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
+  height: 100%;
+  justify-content: flex-end;
 }
 
-.toast-notice.show {
-  transform: translateX(-50%) translateY(0);
-  opacity: 1;
+.chart-bar-wrap {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 2px;
 }
 
-/* Animación de entrada */
+.chart-bar {
+  width: 100%;
+  max-width: 28px;
+  min-height: 4px;
+  border-radius: 7px 7px 3px 3px;
+  background: linear-gradient(180deg, #818cf8 0%, rgba(99, 102, 241, 0.3) 100%);
+  transition: height 0.5s var(--ios-spring);
+}
+
+.chart-bar.today {
+  background: linear-gradient(180deg, #34d399 0%, rgba(16, 185, 129, 0.35) 100%);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.45);
+}
+
+/* Cuadro de mensaje preescrito de stock */
+.stock-msg-box {
+  width: 100%;
+  min-height: 240px;
+  background: rgba(8, 13, 24, 0.92);
+  color: #f8fafc;
+  border: 1px solid rgba(16, 185, 129, 0.38);
+  border-radius: 18px;
+  padding: 15px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", monospace;
+  font-size: 13.5px;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+  box-shadow: inset 0 3px 12px rgba(0, 0, 0, 0.55);
+}
+
+.stock-msg-box:focus {
+  border-color: #34d399;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22), inset 0 3px 12px rgba(0, 0, 0, 0.55);
+}
+
+/* Animación de entrada de vistas */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s ease-out forwards;
+  animation: fadeIn 0.28s var(--ios-spring) forwards;
 }
 
 /* Barra de progreso Tarjeta vs Efectivo */
 .ratio-bar {
   height: 12px;
-  border-radius: 6px;
+  border-radius: 999px;
   display: flex;
   overflow: hidden;
-  background: #334155;
+  background: rgba(15, 23, 42, 0.9);
   margin: 10px 0;
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .ratio-segment-card {
   background: linear-gradient(90deg, #6366f1, #818cf8);
-  transition: width 0.4s ease;
+  transition: width 0.5s var(--ios-spring);
 }
 
 .ratio-segment-cash {
   background: linear-gradient(90deg, #10b981, #34d399);
-  transition: width 0.4s ease;
+  transition: width 0.5s var(--ios-spring);
+}
+
+/* Gráficas Interactivas SVG de Series Temporales */
+.ts-chart-wrapper {
+  position: relative;
+  width: 100%;
+  background: linear-gradient(180deg, rgba(8, 13, 25, 0.86) 0%, rgba(5, 9, 18, 0.92) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 12px 8px 8px 8px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+.ts-svg-canvas {
+  width: 100%;
+  height: 198px;
+  display: block;
+  overflow: visible;
+}
+
+.ts-hit-col {
+  fill: transparent;
+  cursor: pointer;
+  transition: fill 0.15s ease;
+}
+
+.ts-hit-col:hover,
+.ts-hit-col.active {
+  fill: rgba(255, 255, 255, 0.055);
+}
+
+.ts-point-dot {
+  transition: r 0.18s var(--ios-spring), stroke-width 0.18s ease;
+  pointer-events: none;
+}
+
+.ts-inspector-bar {
+  background: rgba(11, 18, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 9px 13px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ts-mini-pill {
+  padding: 5.5px 11px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(24, 34, 54, 0.78);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s var(--ios-spring);
+  white-space: nowrap;
+}
+
+.ts-mini-pill:hover {
+  color: #ffffff;
+  background: rgba(40, 56, 85, 0.88);
+}
+
+.ts-mini-pill.active-emerald {
+  background: rgba(16, 185, 129, 0.24);
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.55);
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+}
+
+.ts-mini-pill.active-cyan {
+  background: rgba(6, 182, 212, 0.24);
+  color: #67e8f9;
+  border-color: rgba(6, 182, 212, 0.55);
+  box-shadow: 0 2px 10px rgba(6, 182, 212, 0.2);
+}
+
+/* Mapa de Calor de Ventas (Días × Franjas Horarias) */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: 44px repeat(6, 1fr);
+  gap: 4.5px;
+  align-items: center;
+}
+
+.heatmap-cell {
+  border-radius: 9px;
+  padding: 6.5px 2px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: transform 0.16s var(--ios-spring), border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.heatmap-cell:hover,
+.heatmap-cell.active {
+  transform: scale(1.07);
+  border-color: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  z-index: 2;
 }
