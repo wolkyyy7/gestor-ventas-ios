@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.7';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.7';
-import { AgentSales } from './agents/AgentSales.js?v=4.7';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.7';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.7';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.7';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.7';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.7';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.8';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.8';
+import { AgentSales } from './agents/AgentSales.js?v=4.8';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.8';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.8';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.8';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.8';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.8';
 
-const APP_VERSION = 'v4.7';
+const APP_VERSION = 'v4.8';
 
 class AppController {
   constructor() {

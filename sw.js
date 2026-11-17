@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestor-ventas-ios-v4.7';
+const CACHE_NAME = 'gestor-ventas-ios-v4.8';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -21,7 +21,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[ServiceWorker] Precaching app shell v4.7...');
+      console.log('[ServiceWorker] Precaching app shell v4.8...');
       return cache.addAll(ASSETS_TO_CACHE);
     }).then(() => self.skipWaiting())
   );

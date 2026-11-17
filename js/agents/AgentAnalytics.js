@@ -248,9 +248,11 @@ export class AgentAnalytics {
 
     const currentStockPotentialProfit = currentStockRetailValue - currentStockCostValue;
     const periodGlobalBilled = periodSalesAllWarehouses.reduce((sum, s) => sum + (parseFloat(s.grossTotal) || 0), 0);
+    const scopedAllTimeBilled = allSales.reduce((sum, s) => sum + (parseFloat(s.grossTotal) || 0), 0);
 
     let totalPendingFreeVapersAllWorkers = 0;
     let totalPendingMoneyFromWorkers = 0;
+    const workerAccountsWarehouses = [];
 
     const warehouseBreakdown = allWarehouses.map(wh => {
       const whId = wh.id;
@@ -259,7 +261,7 @@ export class AgentAnalytics {
       const deliveredFreeVapers = Math.max(0, parseInt(wh.rewardVapersDelivered, 10) || 0);
       const cashSettledAmount = Math.max(0, parseFloat(wh.cashSettledAmount) || 0);
 
-      // Ventas de este almacén en el periodo seleccionado
+      // Ventas de este almacén en el periodo y pedido seleccionados
       const whPeriodSales = periodSalesAllWarehouses.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === whId);
       let periodBilled = 0;
       let periodProfit = 0;
@@ -285,46 +287,54 @@ export class AgentAnalytics {
       const periodMargin = periodBilled > 0 ? parseFloat(((periodProfit / periodBilled) * 100).toFixed(1)) : 0;
       const periodRevenueShare = periodGlobalBilled > 0 ? parseFloat(((periodBilled / periodGlobalBilled) * 100).toFixed(1)) : 0;
 
-      // Ventas históricas totales de este almacén
+      // Ventas de este almacén en el histórico (respetando orderFilter para el desglose por almacén)
       const whAllTimeSales = allSales.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === whId);
       let whAllTimeBilled = 0;
       let whAllTimeProfit = 0;
       let whAllTimeUnitsSold = 0;
-      let whAllTimePaidUnitsSold = 0;
+
+      whAllTimeSales.forEach(s => {
+        whAllTimeBilled += parseFloat(s.grossTotal) || 0;
+        whAllTimeProfit += parseFloat(s.netProfit) || 0;
+        whAllTimeUnitsSold += parseInt(s.quantity, 10) || 0;
+      });
+
+      const whAllTimeTransactions = whAllTimeSales.length;
+      const allTimeRevenueShare = scopedAllTimeBilled > 0 ? parseFloat(((whAllTimeBilled / scopedAllTimeBilled) * 100).toFixed(1)) : 0;
+
+      // Saldo y comisiones REALES acumuladas del trabajador sobre TODO su histórico global (sin afectar por filtro de pedido)
+      const whGlobalSales = rawAllSales.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === whId);
+      let globalUnitsSold = 0;
+      let globalPaidUnitsSold = 0;
       let totalCollectedPaid = 0;
       let collectedCash = 0;
       let collectedCard = 0;
       let totalPendingFiados = 0;
 
-      whAllTimeSales.forEach(s => {
+      whGlobalSales.forEach(s => {
         const gross = parseFloat(s.grossTotal) || 0;
         const qty = parseInt(s.quantity, 10) || 0;
-        whAllTimeBilled += gross;
-        whAllTimeProfit += parseFloat(s.netProfit) || 0;
-        whAllTimeUnitsSold += qty;
+        globalUnitsSold += qty;
 
         if (s.paymentStatus === 'pending') {
           totalPendingFiados += gross;
         } else {
           // Las ventas fiadas solo cuentan para comisión de vapers gratis al cobrarlas
-          whAllTimePaidUnitsSold += qty;
+          globalPaidUnitsSold += qty;
           totalCollectedPaid += gross;
           if (s.paymentMethod === 'Efectivo') collectedCash += gross;
           else collectedCard += gross;
         }
       });
 
-      const whAllTimeTransactions = whAllTimeSales.length;
-      const allTimeRevenueShare = allTimeBilled > 0 ? parseFloat(((whAllTimeBilled / allTimeBilled) * 100).toFixed(1)) : 0;
-
-      // Cálculos de Comisión de Vapers Gratis (solo unidades ya cobradas)
-      const earnedFreeVapers = Math.floor(whAllTimePaidUnitsSold / rewardEveryNUnits) * rewardFreeUnits;
+      // Cálculos de Comisión de Vapers Gratis (solo unidades ya cobradas en histórico global)
+      const earnedFreeVapers = Math.floor(globalPaidUnitsSold / rewardEveryNUnits) * rewardFreeUnits;
       const pendingFreeVapers = Math.max(0, earnedFreeVapers - deliveredFreeVapers);
-      const unitsTowardNextFreeVaper = whAllTimePaidUnitsSold % rewardEveryNUnits;
+      const unitsTowardNextFreeVaper = globalPaidUnitsSold % rewardEveryNUnits;
       const unitsNeededForNextFreeVaper = rewardEveryNUnits - unitsTowardNextFreeVaper;
       const nextFreeVaperProgressPct = parseFloat(((unitsTowardNextFreeVaper / rewardEveryNUnits) * 100).toFixed(1));
 
-      // Cuentas de liquidación de dinero con el trabajador
+      // Cuentas globales de liquidación de dinero con el trabajador
       const pendingMoneyToDeliver = Math.max(0, parseFloat((totalCollectedPaid - cashSettledAmount).toFixed(2)));
 
       if (!wh.isMain) {
@@ -360,7 +370,7 @@ export class AgentAnalytics {
         ? parseFloat(((whAllTimeUnitsSold / totalManagedUnits) * 100).toFixed(1))
         : 0;
 
-      return {
+      const breakdownEntry = {
         warehouseId: whId,
         name: wh.name,
         workerName: wh.workerName || '',
@@ -379,13 +389,13 @@ export class AgentAnalytics {
         periodCashBilled: parseFloat(periodCashBilled.toFixed(2)),
         periodCardBilled: parseFloat(periodCardBilled.toFixed(2)),
         periodPendingFiados: parseFloat(periodPendingFiados.toFixed(2)),
-        // Histórico
+        // Histórico (según orderFilter si está activo)
         allTimeBilled: parseFloat(whAllTimeBilled.toFixed(2)),
         allTimeProfit: parseFloat(whAllTimeProfit.toFixed(2)),
         allTimeUnitsSold: whAllTimeUnitsSold,
         allTimeTransactions: whAllTimeTransactions,
         allTimeRevenueShare,
-        // Comisiones de Vapers Gratis (Punto 1)
+        // Comisiones y liquidaciones globales
         rewardEveryNUnits,
         rewardFreeUnits,
         earnedFreeVapers,
@@ -394,7 +404,6 @@ export class AgentAnalytics {
         unitsTowardNextFreeVaper,
         unitsNeededForNextFreeVaper,
         nextFreeVaperProgressPct,
-        // Liquidaciones de Dinero (Punto 1)
         totalCollectedPaid: parseFloat(totalCollectedPaid.toFixed(2)),
         collectedCash: parseFloat(collectedCash.toFixed(2)),
         collectedCard: parseFloat(collectedCard.toFixed(2)),
@@ -413,11 +422,18 @@ export class AgentAnalytics {
         // Rotación
         sellThroughRate
       };
+
+      workerAccountsWarehouses.push({
+        ...breakdownEntry,
+        allTimeUnitsSold: globalUnitsSold
+      });
+
+      return breakdownEntry;
     });
 
     const workerAccounts = {
-      warehouses: warehouseBreakdown,
-      workerWarehousesOnly: warehouseBreakdown.filter(w => !w.isMain),
+      warehouses: workerAccountsWarehouses,
+      workerWarehousesOnly: workerAccountsWarehouses.filter(w => !w.isMain),
       totalPendingFreeVapersAllWorkers,
       totalPendingMoneyFromWorkers: parseFloat(totalPendingMoneyFromWorkers.toFixed(2)),
       recentSettlements: allSettlements.slice(0, 25)
