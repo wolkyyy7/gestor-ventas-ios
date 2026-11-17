@@ -6,14 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.5';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.5';
-import { AgentSales } from './agents/AgentSales.js?v=4.5';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.5';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.5';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.5';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.5';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.5';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.6';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.6';
+import { AgentSales } from './agents/AgentSales.js?v=4.6';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.6';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.6';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.6';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.6';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.6';
+
+const APP_VERSION = 'v4.6';
 
 class AppController {
   constructor() {
@@ -86,7 +88,7 @@ class AppController {
   }
 
   async init() {
-    console.log('Iniciando Gestor de Ventas e Inventario Multi-Almacén v4.2...');
+    console.log(`Iniciando Gestor de Ventas e Inventario Multi-Almacén ${APP_VERSION}...`);
     await this.storageAgent.init();
     this.storageAgent.attachSupabaseAgent(this.supabaseAgent);
     await this.notificationsAgent.init();
@@ -111,11 +113,8 @@ class AppController {
       }
     }
 
-    // Suscribirse a todos los eventos reactivos de datos
-    const refreshUI = () => {
-      this.renderCurrentTab();
-      this.updateHeaderQuickStats();
-    };
+    // Suscribirse a todos los eventos reactivos de datos (con debounce para no interrumpir tecleo)
+    const refreshUI = () => this._scheduleReactiveRefresh();
 
     this.storageAgent.subscribe('products:changed', refreshUI);
     this.storageAgent.subscribe('sales:changed', refreshUI);
@@ -137,6 +136,28 @@ class AppController {
     }
   }
 
+  _scheduleReactiveRefresh() {
+    clearTimeout(this._reactiveRefreshTimer);
+    this._reactiveRefreshTimer = setTimeout(() => {
+      this.updateHeaderQuickStats();
+      const active = document.activeElement;
+      const isEditingInput = active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+      if (isEditingInput) {
+        if (active.id === 'salesSearchInput') {
+          this._refreshSalesGridOnly();
+          return;
+        }
+        if (active.id === 'inventorySearchInput') {
+          this._refreshInventoryGridOnly();
+          return;
+        }
+        // Evitar perder foco o borrar cambios sin guardar en formularios/ajustes/mensaje
+        return;
+      }
+      this.renderCurrentTab();
+    }, 80);
+  }
+
   scheduleCloudSnapshotPublish() {
     clearTimeout(this._cloudPublishTimer);
     this._cloudPublishTimer = setTimeout(() => {
@@ -155,14 +176,12 @@ class AppController {
         this._playChime('success');
         this.showToast(`🔔 Venta de ${whLabel}: ${s.quantity}x ${s.productName} (+${Number(s.grossTotal).toFixed(2)}€)`, '📲');
       }
-      await this.renderCurrentTab();
-      await this.updateHeaderQuickStats();
+      this._scheduleReactiveRefresh();
     } else if (evt.type === 'STATE_SNAPSHOT' || evt.type === 'RESERVATION_EVENT') {
       if (this.authAgent.isWorker()) {
         this.showToast('Stock y catálogo actualizados desde el Jefe', '☁️');
       }
-      await this.renderCurrentTab();
-      await this.updateHeaderQuickStats();
+      this._scheduleReactiveRefresh();
     }
   }
 
@@ -195,9 +214,11 @@ class AppController {
 
     if (allTimePill) {
       allTimePill.classList.toggle('hidden', isWorker);
+      allTimePill.classList.toggle('sm:flex', !isWorker);
+      allTimePill.style.display = isWorker ? 'none' : '';
     }
     if (todayProfitEl) {
-      todayProfitEl.classList.toggle('hidden', isWorker);
+      todayProfitEl.classList.remove('hidden');
     }
     if (analyticsTabLabel) {
       analyticsTabLabel.textContent = isWorker ? 'Mis Ventas' : 'Métricas';
@@ -215,6 +236,17 @@ class AppController {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  _escJsAttr(str) {
+    if (str === null || str === undefined) return '';
+    return this._escapeHtml(
+      String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '')
+        .replace(/\n/g, ' ')
+    );
   }
 
   /**
@@ -375,7 +407,7 @@ class AppController {
     const target = document.getElementById(`view-${tabName}`);
     if (target) target.classList.remove('hidden');
 
-    this.renderCurrentTab();
+    return this.renderCurrentTab();
   }
 
   async renderCurrentTab() {
@@ -406,6 +438,8 @@ class AppController {
       const workerToday = await this.analyticsAgent.getDashboardMetrics('today', assignedWh);
       if (todayRevEl) todayRevEl.textContent = `${workerToday.totalBilled.toFixed(2)}€`;
       if (todayProfEl) todayProfEl.textContent = `${workerToday.totalUnits} uds hoy`;
+      if (allTimeRevEl) allTimeRevEl.textContent = '';
+      if (allTimeProfEl) allTimeProfEl.textContent = '';
       return;
     }
 
@@ -755,6 +789,7 @@ class AppController {
     const grid = document.getElementById('salesProductGrid');
     if (!grid) return;
 
+    const token = (this._salesGridToken = (this._salesGridToken || 0) + 1);
     const isWorker = this.authAgent.isWorker();
     const [warehouses, products] = await Promise.all([
       this.inventoryAgent.getWarehouses(),
@@ -764,10 +799,14 @@ class AppController {
       })
     ]);
 
+    if (token !== this._salesGridToken) return;
+    const latestGrid = document.getElementById('salesProductGrid');
+    if (!latestGrid) return;
+
     const hasMultipleWarehouses = !isWorker && warehouses.length > 1;
     const availableInActiveCount = products.filter(p => p.availableStock > 0).length;
 
-    grid.innerHTML = this._buildSalesProductGridHtml(products, isWorker, hasMultipleWarehouses);
+    latestGrid.innerHTML = this._buildSalesProductGridHtml(products, isWorker, hasMultipleWarehouses);
     const countEl = document.getElementById('salesAvailableCount');
     if (countEl) {
       countEl.textContent = `${availableInActiveCount} sabores libres`;
@@ -864,9 +903,13 @@ class AppController {
     const whAvailableStock = Math.max(0, whPhysicalStock - whReserved);
     const globalStock = p.stock || 0;
 
-    const qty = parseInt(this.saleQuantity, 10) || 1;
-    const unitPrice = parseFloat(this.saleUnitPrice) || 0;
-    const catalogPrice = parseFloat(p.sellPrice) || 12.00;
+    const parsedQty = parseInt(this.saleQuantity, 10);
+    const qty = (Number.isFinite(parsedQty) && parsedQty >= 1) ? parsedQty : 1;
+    this.saleQuantity = qty;
+    const parsedPrice = parseFloat(this.saleUnitPrice);
+    const unitPrice = (Number.isFinite(parsedPrice) && parsedPrice >= 0) ? parsedPrice : 0;
+    const parsedCat = parseFloat(p.sellPrice);
+    const catalogPrice = (Number.isFinite(parsedCat) && parsedCat >= 0) ? parsedCat : 12.00;
     const discountTotal = Math.max(0, parseFloat(((catalogPrice - unitPrice) * qty).toFixed(2)));
     const totalGross = parseFloat((unitPrice * qty).toFixed(2));
     const totalCost = parseFloat(((p.costPrice || 0) * qty).toFixed(2));
@@ -923,7 +966,7 @@ class AppController {
       }).join('');
     }
 
-    if (inputQty) inputQty.value = qty;
+    if (inputQty && document.activeElement !== inputQty) inputQty.value = qty;
     if (inputPrice && updatePriceInput) inputPrice.value = unitPrice;
 
     if (displayTotal) displayTotal.textContent = `${totalGross.toFixed(2)}€`;
@@ -1000,19 +1043,36 @@ class AppController {
     this._updateSaleModalPreview(false);
   }
 
+  setSaleQuantity(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) {
+      this.saleQuantity = 1;
+      this._updateSaleModalPreview(false);
+      return;
+    }
+    const parsed = parseInt(raw, 10);
+    this.saleQuantity = (Number.isFinite(parsed) && parsed >= 1) ? parsed : 1;
+    this._updateSaleModalPreview(false);
+  }
+
   changeSaleQuantity(delta) {
+    const parsedDelta = parseInt(delta, 10);
+    if (!Number.isFinite(parsedDelta)) return;
     const current = parseInt(this.saleQuantity, 10) || 1;
-    const next = Math.max(1, current + delta);
+    const next = Math.max(1, current + parsedDelta);
     this.saleQuantity = next;
+    const inputQty = document.getElementById('modalSaleQtyInput');
+    if (inputQty) inputQty.value = next;
     this._playChime('tap');
     this._updateSaleModalPreview(false);
   }
 
   setSaleUnitPrice(value) {
-    const val = parseFloat(value);
-    if (!isNaN(val) && val >= 0) {
+    const raw = String(value ?? '').trim();
+    const val = parseFloat(raw);
+    if (Number.isFinite(val) && val >= 0) {
       this.saleUnitPrice = val;
-    } else if (value === '' || value === '0') {
+    } else if (raw === '' || raw === '0' || val < 0) {
       this.saleUnitPrice = 0;
     }
     this._updateSaleModalPreview(false);
@@ -1020,7 +1080,7 @@ class AppController {
 
   quickAdjustPrice(delta) {
     const current = parseFloat(this.saleUnitPrice) || 0;
-    const next = Math.max(0, current + delta);
+    const next = Math.max(0, parseFloat((current + delta).toFixed(2)));
     this.saleUnitPrice = next;
     const inputPrice = document.getElementById('modalSalePriceInput');
     if (inputPrice) inputPrice.value = next;
@@ -1193,6 +1253,7 @@ class AppController {
 
       const reverted = res.revertedSale;
       this.lastCompletedSale = null;
+      this.scheduleCloudSnapshotPublish();
       await this.renderSalesView();
       await this.updateHeaderQuickStats();
 
@@ -1208,11 +1269,15 @@ class AppController {
         });
       }
     } catch (err) {
+      if (this.lastCompletedSale && this.lastCompletedSale.id === saleId) {
+        this.lastCompletedSale = null;
+        await this.renderSalesView();
+      }
       alert(`Error al cancelar la venta: ${err.message}`);
     }
   }
 
-  async openSalesHistoryModal() {
+  async openSalesHistoryModal(silent = false) {
     const modal = document.getElementById('salesHistoryModal');
     const content = document.getElementById('salesHistoryModalContent');
     if (!modal || !content) return;
@@ -1304,14 +1369,18 @@ class AppController {
     }
 
     modal.classList.add('active');
-    this._playChime('tap');
+    if (!silent) this._playChime('tap');
   }
 
   async markPendingSalePaid(saleId, paymentMethod = 'Efectivo', refreshHistoryModal = false) {
     try {
       const res = await this.salesAgent.markSaleAsPaid(saleId, paymentMethod);
+      if (this.lastCompletedSale && this.lastCompletedSale.id === saleId && res.sale) {
+        this.lastCompletedSale = res.sale;
+      }
       this._playChime('success');
       this.showToast(res.message, '✅');
+      this.scheduleCloudSnapshotPublish();
       if (refreshHistoryModal) {
         await this.openSalesHistoryModal();
       }
@@ -1335,7 +1404,10 @@ class AppController {
       const modal = document.getElementById('salesHistoryModal');
       if (modal) modal.classList.remove('active');
 
-      this.lastCompletedSale = null;
+      if (this.lastCompletedSale && this.lastCompletedSale.id === saleId) {
+        this.lastCompletedSale = null;
+      }
+      this.scheduleCloudSnapshotPublish();
       await this.renderSalesView();
       await this.updateHeaderQuickStats();
 
@@ -1920,6 +1992,7 @@ class AppController {
     const grid = document.getElementById('inventoryProductGrid');
     if (!grid) return;
 
+    const token = (this._invGridToken = (this._invGridToken || 0) + 1);
     const isWorker = this.authAgent.isWorker();
     const assignedWh = this.authAgent.getAssignedWarehouseId();
     const targetWh = isWorker && assignedWh ? assignedWh : this.selectedInventoryWarehouse;
@@ -1933,7 +2006,11 @@ class AppController {
       })
     ]);
 
-    grid.innerHTML = this._buildInventoryProductGridHtml(products, warehouses, isWorker);
+    if (token !== this._invGridToken) return;
+    const latestGrid = document.getElementById('inventoryProductGrid');
+    if (!latestGrid) return;
+
+    latestGrid.innerHTML = this._buildInventoryProductGridHtml(products, warehouses, isWorker);
   }
 
   setInventoryWarehouse(warehouseId) {
@@ -2187,10 +2264,16 @@ class AppController {
 
       const btn = document.getElementById('btnCopyStockMessage');
       if (btn) {
-        const originalHtml = btn.innerHTML;
+        if (!btn.dataset.originalHtml) {
+          btn.dataset.originalHtml = btn.innerHTML;
+        }
+        clearTimeout(this._copyStockBtnTimer);
         btn.innerHTML = `<span>✅</span> <span>¡Copiado! Ya puedes pegarlo</span>`;
-        setTimeout(() => {
-          if (btn) btn.innerHTML = originalHtml;
+        this._copyStockBtnTimer = setTimeout(() => {
+          const latestBtn = document.getElementById('btnCopyStockMessage');
+          if (latestBtn && latestBtn.dataset.originalHtml) {
+            latestBtn.innerHTML = latestBtn.dataset.originalHtml;
+          }
         }, 2200);
       }
     } catch (err) {
@@ -2355,9 +2438,10 @@ class AppController {
               const availOrigin = p.stockByWarehouse?.[this.batchTransferFromWh] || 0;
               const currentDest = p.stockByWarehouse?.[this.batchTransferToWh] || 0;
               const qtyToSend = this.batchTransferQuantities[p.id] || 0;
+              const safeId = this._escJsAttr(p.id);
 
               return `
-                <div class="bg-slate-900/85 p-2.5 rounded-xl border ${
+                <div id="batchRow_${this._escapeHtml(p.id)}" data-batch-product="${this._escapeHtml(p.id)}" data-current-dest="${currentDest}" data-max-avail="${availOrigin}" class="bg-slate-900/85 p-2.5 rounded-xl border ${
                   qtyToSend > 0 ? 'border-emerald-500/60 bg-emerald-950/20' : 'border-slate-800'
                 } flex items-center justify-between gap-2">
                   <div class="min-w-0 flex-1">
@@ -2365,28 +2449,31 @@ class AppController {
                     <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
                       <span>En origen: <strong class="${availOrigin > 0 ? 'text-emerald-400' : 'text-rose-400'}">${availOrigin} uds</strong></span>
                       <span>•</span>
-                      <span>En destino: <strong class="text-slate-300">${currentDest}${qtyToSend > 0 ? ` → ${currentDest + qtyToSend}` : ''} uds</strong></span>
+                      <span>En destino: <strong id="batchDest_${this._escapeHtml(p.id)}" class="text-slate-300">${currentDest}${qtyToSend > 0 ? ` → ${currentDest + qtyToSend}` : ''} uds</strong></span>
                     </div>
                   </div>
 
                   <div class="flex items-center gap-1.5">
                     <button 
+                      id="batchDec_${this._escapeHtml(p.id)}"
                       type="button"
-                      onclick="window.app.changeBatchTransferQty('${p.id}', -1, ${availOrigin})"
+                      onclick="window.app.changeBatchTransferQty('${safeId}', -1, ${availOrigin})"
                       class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-white font-bold flex items-center justify-center border border-slate-700"
                       ${qtyToSend <= 0 ? 'disabled style="opacity:0.3"' : ''}
                     >-</button>
                     <input 
+                      id="batchInput_${this._escapeHtml(p.id)}"
                       type="number"
                       min="0"
                       max="${availOrigin}"
                       value="${qtyToSend}"
-                      onchange="window.app.setBatchTransferQty('${p.id}', this.value, ${availOrigin})"
+                      oninput="window.app.setBatchTransferQty('${safeId}', this.value, ${availOrigin})"
                       class="w-11 text-center text-sm font-black ${qtyToSend > 0 ? 'text-emerald-400' : 'text-slate-400'} bg-slate-950/70 py-1 rounded-lg border border-slate-700"
                     />
                     <button 
+                      id="batchInc_${this._escapeHtml(p.id)}"
                       type="button"
-                      onclick="window.app.changeBatchTransferQty('${p.id}', 1, ${availOrigin})"
+                      onclick="window.app.changeBatchTransferQty('${safeId}', 1, ${availOrigin})"
                       class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-white font-bold flex items-center justify-center border border-slate-700"
                       ${qtyToSend >= availOrigin ? 'disabled style="opacity:0.3"' : ''}
                     >+</button>
@@ -2408,13 +2495,15 @@ class AppController {
           </div>
 
           <button 
+            id="btnExecuteBatchTransfer"
+            data-to-wh-name="${this._escapeHtml(toWhObj ? toWhObj.name : 'Destino')}"
             type="button"
             onclick="window.app.executeBatchTransfer()"
             ${totalSelectedUnits <= 0 ? 'disabled' : ''}
             class="btn-primary btn-pressable"
           >
             <span>🚚</span>
-            <span>${
+            <span id="btnExecuteBatchTransferLabel">${
               totalSelectedUnits > 0
                 ? `Enviar ${totalSelectedUnits} uds (${selectedFlavorsCount} sabores) a ${toWhObj ? this._escapeHtml(toWhObj.name) : 'Destino'}`
                 : 'Selecciona unidades para repartir'
@@ -2484,13 +2573,72 @@ class AppController {
     const next = Math.min(maxAvail, Math.max(0, cur + delta));
     this.batchTransferQuantities[productId] = next;
     this._playChime('tap');
-    this.renderInventoryView();
+    this._updateBatchTransferDom(productId);
   }
 
   setBatchTransferQty(productId, val, maxAvail) {
-    const parsed = parseInt(val, 10) || 0;
-    this.batchTransferQuantities[productId] = Math.min(maxAvail, Math.max(0, parsed));
-    this.renderInventoryView();
+    const raw = String(val ?? '').trim();
+    const parsed = raw === '' ? 0 : (parseInt(raw, 10) || 0);
+    const next = Math.min(maxAvail, Math.max(0, parsed));
+    this.batchTransferQuantities[productId] = next;
+    this._updateBatchTransferDom(productId, raw === '');
+  }
+
+  _updateBatchTransferDom(onlyProductId = null, keepEmptyInput = false) {
+    const updateRow = (row) => {
+      const pid = row.dataset.batchProduct;
+      if (!pid) return;
+      const qtyToSend = parseInt(this.batchTransferQuantities[pid], 10) || 0;
+      const currentDest = parseInt(row.dataset.currentDest, 10) || 0;
+      const maxAvail = parseInt(row.dataset.maxAvail, 10) || 0;
+
+      row.className = `bg-slate-900/85 p-2.5 rounded-xl border ${
+        qtyToSend > 0 ? 'border-emerald-500/60 bg-emerald-950/20' : 'border-slate-800'
+      } flex items-center justify-between gap-2`;
+
+      const destEl = document.getElementById(`batchDest_${pid}`);
+      if (destEl) {
+        destEl.textContent = `${currentDest}${qtyToSend > 0 ? ` → ${currentDest + qtyToSend}` : ''} uds`;
+      }
+      const decBtn = document.getElementById(`batchDec_${pid}`);
+      if (decBtn) {
+        decBtn.disabled = qtyToSend <= 0;
+        decBtn.style.opacity = qtyToSend <= 0 ? '0.3' : '';
+      }
+      const incBtn = document.getElementById(`batchInc_${pid}`);
+      if (incBtn) {
+        incBtn.disabled = qtyToSend >= maxAvail;
+        incBtn.style.opacity = qtyToSend >= maxAvail ? '0.3' : '';
+      }
+      const inp = document.getElementById(`batchInput_${pid}`);
+      if (inp) {
+        inp.className = `w-11 text-center text-sm font-black ${qtyToSend > 0 ? 'text-emerald-400' : 'text-slate-400'} bg-slate-950/70 py-1 rounded-lg border border-slate-700`;
+        if (!keepEmptyInput && document.activeElement !== inp) {
+          inp.value = qtyToSend;
+        }
+      }
+    };
+
+    if (onlyProductId) {
+      const singleRow = document.getElementById(`batchRow_${onlyProductId}`);
+      if (singleRow) updateRow(singleRow);
+    } else {
+      document.querySelectorAll('[data-batch-product]').forEach(updateRow);
+    }
+
+    const totalSelectedUnits = Object.values(this.batchTransferQuantities).reduce((s, q) => s + (parseInt(q, 10) || 0), 0);
+    const selectedFlavorsCount = Object.values(this.batchTransferQuantities).filter(q => (parseInt(q, 10) || 0) > 0).length;
+    const submitBtn = document.getElementById('btnExecuteBatchTransfer');
+    const labelEl = document.getElementById('btnExecuteBatchTransferLabel');
+    if (submitBtn) {
+      submitBtn.disabled = totalSelectedUnits <= 0;
+      if (labelEl) {
+        const toName = submitBtn.dataset.toWhName || 'Destino';
+        labelEl.textContent = totalSelectedUnits > 0
+          ? `Enviar ${totalSelectedUnits} uds (${selectedFlavorsCount} sabores) a ${toName}`
+          : 'Selecciona unidades para repartir';
+      }
+    }
   }
 
   async batchAddOneToAll() {
@@ -2692,7 +2840,9 @@ class AppController {
 
     if (custInput) custInput.value = '';
     if (qtyInput) qtyInput.value = 1;
-    if (priceInput) priceInput.value = '12.00';
+    const defaultProd = products.find(p => p.id === (productId || products[0]?.id));
+    const defaultPrice = (defaultProd && Number.isFinite(parseFloat(defaultProd.sellPrice))) ? parseFloat(defaultProd.sellPrice).toFixed(2) : '12.00';
+    if (priceInput) priceInput.value = defaultPrice;
     if (notesInput) notesInput.value = '';
 
     if (activeListEl) {
@@ -2725,12 +2875,20 @@ class AppController {
     const prodId = document.getElementById('resModalProductSelect')?.value;
     const badge = document.getElementById('resModalAvailBadge');
     const btn = document.getElementById('btnConfirmResModal');
-    if (!prodId) return;
+    const priceInput = document.getElementById('resModalPriceInput');
+    if (!prodId) {
+      this._currentResModalMax = 0;
+      if (btn) btn.disabled = true;
+      return;
+    }
 
     const products = await this.inventoryAgent.getProducts({ warehouseId: whId });
     const prod = products.find(p => p.id === prodId);
     const avail = prod ? prod.availableStock : 0;
     this._currentResModalMax = avail;
+    if (priceInput && prod && Number.isFinite(parseFloat(prod.sellPrice))) {
+      priceInput.value = parseFloat(prod.sellPrice).toFixed(2);
+    }
 
     if (badge) {
       badge.textContent = `Libres: ${avail} uds`;
@@ -2744,7 +2902,7 @@ class AppController {
   stepResModalQty(delta) {
     const input = document.getElementById('resModalQtyInput');
     if (!input) return;
-    const max = Math.max(1, this._currentResModalMax || 99);
+    const max = Math.max(1, Number(this._currentResModalMax || 0));
     const cur = parseInt(input.value, 10) || 1;
     input.value = Math.min(max, Math.max(1, cur + delta));
     this._playChime('tap');
@@ -2758,7 +2916,8 @@ class AppController {
       : (document.getElementById('resModalWarehouseSelect')?.value || MAIN_WAREHOUSE_ID);
     const productId = document.getElementById('resModalProductSelect')?.value || '';
     const quantity = parseInt(document.getElementById('resModalQtyInput')?.value, 10) || 1;
-    const agreedUnitPrice = parseFloat(document.getElementById('resModalPriceInput')?.value) || 12.00;
+    const rawPrice = parseFloat(document.getElementById('resModalPriceInput')?.value);
+    const agreedUnitPrice = Number.isFinite(rawPrice) ? rawPrice : 12.00;
     const notes = document.getElementById('resModalNotesInput')?.value || '';
 
     try {
@@ -2801,6 +2960,7 @@ class AppController {
       }
 
       if (res.sale) {
+        this.cloudSyncAgent.publishReservationEvent('complete', { id: reservationId }).catch(() => {});
         this._notifyAndSyncSale(res.sale);
       }
 
@@ -2890,7 +3050,11 @@ class AppController {
     const badge = document.getElementById('transferModalAvailableBadge');
     const btn = document.getElementById('btnConfirmSingleTransfer');
 
-    if (!prodId || !fromWh) return;
+    if (!prodId || !fromWh) {
+      this._currentTransferModalMax = 0;
+      if (btn) btn.disabled = true;
+      return;
+    }
     const product = await this.inventoryAgent.getProduct(prodId);
     const avail = product ? (product.stockByWarehouse?.[fromWh] || 0) : 0;
     this._currentTransferModalMax = avail;
@@ -2908,17 +3072,17 @@ class AppController {
   adjustTransferModalQty(delta) {
     const input = document.getElementById('transferModalQtyInput');
     if (!input) return;
-    const max = this._currentTransferModalMax || 999;
+    const max = Math.max(1, Number(this._currentTransferModalMax || 0));
     const cur = parseInt(input.value, 10) || 1;
-    input.value = Math.min(Math.max(1, max), Math.max(1, cur + delta));
+    input.value = Math.min(max, Math.max(1, cur + delta));
     this._playChime('tap');
   }
 
   setTransferModalMaxQty() {
     const input = document.getElementById('transferModalQtyInput');
     if (!input) return;
-    const max = this._currentTransferModalMax || 1;
-    input.value = Math.max(1, max);
+    const max = Math.max(1, Number(this._currentTransferModalMax || 0));
+    input.value = max;
     this._playChime('tap');
   }
 
@@ -3964,10 +4128,7 @@ class AppController {
   // -------------------------------------------------------------------------
   _buildWorkerAccountsSectionHtml(workerAccounts) {
     if (!workerAccounts) return '';
-    const allWarehousesList = workerAccounts.warehouses || [];
-    const workersList = workerAccounts.workerWarehousesOnly && workerAccounts.workerWarehousesOnly.length > 0
-      ? workerAccounts.workerWarehousesOnly
-      : allWarehousesList;
+    const workersList = workerAccounts.workerWarehousesOnly || [];
 
     return `
       <div class="ios-card ios-card-glow-emerald mb-4">
@@ -4003,7 +4164,11 @@ class AppController {
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          ${workersList.map(w => `
+          ${workersList.length === 0 ? `
+            <div class="col-span-full bg-slate-900/70 p-4 rounded-2xl border border-slate-800 text-center text-xs text-slate-400">
+              Aún no has creado almacenes de trabajadores secundarios. Pulsa <strong>+ Nuevo Trabajador</strong> para empezar.
+            </div>
+          ` : workersList.map(w => `
             <div class="bg-slate-900/90 p-3.5 rounded-2xl border ${w.pendingFreeVapers > 0 ? 'border-emerald-500/50' : 'border-slate-700/70'}">
               <div class="flex items-start justify-between gap-2 mb-2.5">
                 <div class="flex items-center gap-2">
@@ -4430,6 +4595,15 @@ class AppController {
     const body = document.getElementById('workerActionModalBody');
     if (!modal || !body) return;
 
+    const renderProdOptions = (fromWhId, selectedProdId = 'none') => `
+      <option value="none" ${selectedProdId === 'none' ? 'selected' : ''}>No descontar stock (solo anotar regalo entregado)</option>
+      ${products.map(p => {
+        const whSt = p.stockByWarehouse?.[fromWhId] || 0;
+        return `<option value="${this._escapeHtml(p.id)}" ${p.id === selectedProdId ? 'selected' : ''}>Descontar: ${this._escapeHtml(p.name)} (Stock ahí: ${whSt} uds)</option>`;
+      }).join('')}
+    `;
+    this._rewardModalProductsCache = products;
+
     body.innerHTML = `
       <div class="flex items-center justify-between mb-3">
         <div>
@@ -4439,7 +4613,7 @@ class AppController {
         <button onclick="document.getElementById('workerActionModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
       </div>
 
-      <form onsubmit="event.preventDefault(); window.app.confirmDeliverRewardVaper('${warehouse.id}');" class="space-y-3">
+      <form onsubmit="event.preventDefault(); window.app.confirmDeliverRewardVaper('${this._escJsAttr(warehouse.id)}');" class="space-y-3">
         <div>
           <label class="text-xs text-slate-300 font-bold block mb-1">Cuántos vapers gratis le entregas ahora:</label>
           <input 
@@ -4454,19 +4628,16 @@ class AppController {
         <div>
           <label class="text-xs text-slate-300 font-bold block mb-1">¿Descontar el vaper de regalo del stock físico?</label>
           <select id="rewardModalProductId" class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 text-xs font-semibold">
-            <option value="none">No descontar stock (solo anotar regalo entregado)</option>
-            ${products.map(p => `
-              <option value="${p.id}">Descontar: ${this._escapeHtml(p.name)} (Stock: ${p.stock} uds)</option>
-            `).join('')}
+            ${renderProdOptions(warehouse.id, 'none')}
           </select>
         </div>
 
         <div>
           <label class="text-xs text-slate-300 font-bold block mb-1">Almacén del que sale el vaper de regalo:</label>
-          <select id="rewardModalFromWh" class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 text-xs font-semibold">
+          <select id="rewardModalFromWh" onchange="window.app.onRewardModalFromWhChange()" class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 text-xs font-semibold">
             ${warehouses.map(w => `
-              <option value="${w.id}" ${w.id === warehouse.id ? 'selected' : ''}>
-                ${w.icon || '🏠'} ${this._escapeHtml(w.name)}
+              <option value="${this._escapeHtml(w.id)}" ${w.id === warehouse.id ? 'selected' : ''}>
+                ${this._escapeHtml(w.icon || '🏠')} ${this._escapeHtml(w.name)}
               </option>
             `).join('')}
           </select>
@@ -4489,6 +4660,21 @@ class AppController {
 
     modal.classList.add('active');
     this._playChime('tap');
+  }
+
+  onRewardModalFromWhChange() {
+    const fromWhId = document.getElementById('rewardModalFromWh')?.value || MAIN_WAREHOUSE_ID;
+    const prodSelect = document.getElementById('rewardModalProductId');
+    const products = this._rewardModalProductsCache || [];
+    if (!prodSelect) return;
+    const currentSel = prodSelect.value || 'none';
+    prodSelect.innerHTML = `
+      <option value="none" ${currentSel === 'none' ? 'selected' : ''}>No descontar stock (solo anotar regalo entregado)</option>
+      ${products.map(p => {
+        const whSt = p.stockByWarehouse?.[fromWhId] || 0;
+        return `<option value="${this._escapeHtml(p.id)}" ${p.id === currentSel ? 'selected' : ''}>Descontar: ${this._escapeHtml(p.name)} (Stock ahí: ${whSt} uds)</option>`;
+      }).join('')}
+    `;
   }
 
   async confirmDeliverRewardVaper(workerWarehouseId) {
@@ -4649,11 +4835,15 @@ class AppController {
 
     try {
       const res = await this.salesAgent.updateSaleNotes(saleId, { buyerName, notes });
+      if (this.lastCompletedSale && this.lastCompletedSale.id === saleId && res.sale) {
+        this.lastCompletedSale = res.sale;
+      }
       document.getElementById('workerActionModal')?.classList.remove('active');
       this._playChime('success');
       this.showToast(res.message, '✏️');
+      this.scheduleCloudSnapshotPublish();
       if (document.getElementById('salesHistoryModal')?.classList.contains('active')) {
-        await this.openSalesHistoryModal();
+        await this.openSalesHistoryModal(true);
       }
       await this.renderCurrentTab();
     } catch (err) {
@@ -4892,14 +5082,16 @@ class AppController {
             ${coordsBilled.map((c, i) => {
               const isSelected = i === activeIdx;
               const showLabel = this._shouldShowXAxisLabel(i, series.length);
-              const hitX = padLeft + i * colW;
+              const leftBound = i === 0 ? padLeft : (coordsBilled[i - 1].x + c.x) / 2;
+              const rightBound = i === coordsBilled.length - 1 ? (padLeft + plotW) : (c.x + coordsBilled[i + 1].x) / 2;
+              const hitX = leftBound;
+              const hitW = Math.max(4, rightBound - leftBound);
               return `
                 <g>
-                  ${isSelected ? `
-                    <line x1="${c.x.toFixed(1)}" y1="${padTop}" x2="${c.x.toFixed(1)}" y2="${baseLineY}" stroke="#34d399" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.8"/>
-                  ` : ''}
+                  <line id="revCrosshair_${i}" x1="${c.x.toFixed(1)}" y1="${padTop}" x2="${c.x.toFixed(1)}" y2="${baseLineY}" stroke="#34d399" stroke-width="1.2" stroke-dasharray="2,2" opacity="${isSelected ? '0.8' : '0'}"/>
                   <circle 
                     id="revDot_${i}"
+                    data-has-val="${c.val > 0 ? '1' : '0'}"
                     cx="${c.x.toFixed(1)}" 
                     cy="${c.y.toFixed(1)}" 
                     r="${isSelected ? '5.2' : (c.val > 0 ? '3.2' : '2')}" 
@@ -4909,14 +5101,15 @@ class AppController {
                     class="ts-point-dot"
                   />
                   ${showLabel ? `
-                    <text x="${c.x.toFixed(1)}" y="${svgH - 7}" text-anchor="middle" fill="${isSelected ? '#34d399' : '#94a3b8'}" font-size="9.5" font-weight="${isSelected ? '700' : '500'}">
+                    <text id="revXLabel_${i}" x="${c.x.toFixed(1)}" y="${svgH - 7}" text-anchor="middle" fill="${isSelected ? '#34d399' : '#94a3b8'}" font-size="9.5" font-weight="${isSelected ? '700' : '500'}">
                       ${this._escapeHtml(c.pt.shortLabel)}
                     </text>
                   ` : ''}
                   <rect 
+                    id="revHit_${i}"
                     x="${hitX.toFixed(1)}" 
                     y="${padTop}" 
-                    width="${colW.toFixed(1)}" 
+                    width="${hitW.toFixed(1)}" 
                     height="${plotH + padBottom}" 
                     class="ts-hit-col ${isSelected ? 'active' : ''}"
                     onclick="window.app.inspectTimeSeriesPoint('revenue', ${i})"
@@ -5130,14 +5323,16 @@ class AppController {
             ${coordsUnits.map((c, i) => {
               const isSelected = i === activeIdx;
               const showLabel = this._shouldShowXAxisLabel(i, series.length);
-              const hitX = padLeft + i * colW;
+              const leftBound = i === 0 ? padLeft : (coordsUnits[i - 1].x + c.x) / 2;
+              const rightBound = i === coordsUnits.length - 1 ? (padLeft + plotW) : (c.x + coordsUnits[i + 1].x) / 2;
+              const hitX = leftBound;
+              const hitW = Math.max(4, rightBound - leftBound);
               return `
                 <g>
-                  ${isSelected ? `
-                    <line x1="${c.x.toFixed(1)}" y1="${padTop}" x2="${c.x.toFixed(1)}" y2="${baseLineY}" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="2,2" opacity="0.8"/>
-                  ` : ''}
+                  <line id="unitsCrosshair_${i}" x1="${c.x.toFixed(1)}" y1="${padTop}" x2="${c.x.toFixed(1)}" y2="${baseLineY}" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="2,2" opacity="${isSelected ? '0.8' : '0'}"/>
                   <circle 
                     id="unitsDot_${i}"
+                    data-has-val="${c.val > 0 ? '1' : '0'}"
                     cx="${c.x.toFixed(1)}" 
                     cy="${c.y.toFixed(1)}" 
                     r="${isSelected ? '5.2' : (c.val > 0 ? '3.2' : '2')}" 
@@ -5147,14 +5342,15 @@ class AppController {
                     class="ts-point-dot"
                   />
                   ${showLabel ? `
-                    <text x="${c.x.toFixed(1)}" y="${svgH - 7}" text-anchor="middle" fill="${isSelected ? '#22d3ee' : '#94a3b8'}" font-size="9.5" font-weight="${isSelected ? '700' : '500'}">
+                    <text id="unitsXLabel_${i}" x="${c.x.toFixed(1)}" y="${svgH - 7}" text-anchor="middle" fill="${isSelected ? '#22d3ee' : '#94a3b8'}" font-size="9.5" font-weight="${isSelected ? '700' : '500'}">
                       ${this._escapeHtml(c.pt.shortLabel)}
                     </text>
                   ` : ''}
                   <rect 
+                    id="unitsHit_${i}"
                     x="${hitX.toFixed(1)}" 
                     y="${padTop}" 
-                    width="${colW.toFixed(1)}" 
+                    width="${hitW.toFixed(1)}" 
                     height="${plotH + padBottom}" 
                     class="ts-hit-col ${isSelected ? 'active' : ''}"
                     onclick="window.app.inspectTimeSeriesPoint('units', ${i})"
@@ -5199,12 +5395,40 @@ class AppController {
     const ts = this._lastTimeSeriesData;
     if (!ts) return;
 
+    const updateChartHighlight = (prefix, count, activeColor) => {
+      for (let i = 0; i < count; i++) {
+        const selected = i === idx;
+        const dot = document.getElementById(`${prefix}Dot_${i}`);
+        if (dot) {
+          const hasVal = dot.dataset?.hasVal === '1';
+          dot.setAttribute('r', selected ? '5.2' : (hasVal ? '3.2' : '2'));
+          dot.setAttribute('fill', selected ? '#ffffff' : (hasVal ? activeColor : '#334155'));
+          dot.setAttribute('stroke', selected ? activeColor : '#0f172a');
+          dot.setAttribute('stroke-width', selected ? '2.5' : '1.2');
+        }
+        const crosshair = document.getElementById(`${prefix}Crosshair_${i}`);
+        if (crosshair) {
+          crosshair.setAttribute('opacity', selected ? '0.8' : '0');
+        }
+        const xLabel = document.getElementById(`${prefix}XLabel_${i}`);
+        if (xLabel) {
+          xLabel.setAttribute('fill', selected ? (prefix === 'rev' ? '#34d399' : '#22d3ee') : '#94a3b8');
+          xLabel.setAttribute('font-weight', selected ? '700' : '500');
+        }
+        const hit = document.getElementById(`${prefix}Hit_${i}`);
+        if (hit) {
+          hit.classList.toggle('active', selected);
+        }
+      }
+    };
+
     if (chartType === 'revenue') {
       this.revenueInspectedIdx = idx;
       const scale = this.revenueChartScale || ts.defaultScale || 'daily7Days';
       const series = ts[scale] || [];
       const pt = series[idx];
       if (!pt) return;
+      updateChartHighlight('rev', series.length, '#10b981');
       const inspector = document.getElementById('revenueChartInspector');
       if (inspector) {
         inspector.innerHTML = `
@@ -5226,6 +5450,7 @@ class AppController {
       const series = ts[scale] || [];
       const pt = series[idx];
       if (!pt) return;
+      updateChartHighlight('units', series.length, '#06b6d4');
       const inspector = document.getElementById('unitsChartInspector');
       if (inspector) {
         inspector.innerHTML = `
@@ -5268,6 +5493,9 @@ class AppController {
 
     try {
       const res = await this.salesAgent.revertSale(saleId);
+      if (this.lastCompletedSale && this.lastCompletedSale.id === saleId) {
+        this.lastCompletedSale = null;
+      }
       this._playChime('revert');
       this.showToast(res.message, '↩️');
       if (this.authAgent.isBoss()) {
@@ -5288,7 +5516,7 @@ class AppController {
   async _renderWorkerAnalyticsView(container) {
     const assignedWh = this.authAgent.getAssignedWarehouseId();
     const data = await this.analyticsAgent.getDashboardMetrics(this.analyticsTimeframe, assignedWh);
-    const workerAcct = (data.workerAccounts?.workers || []).find(w => w.warehouseId === assignedWh);
+    const workerAcct = (data.workerAccounts?.warehouses || []).find(w => w.warehouseId === assignedWh);
     const myWarehouse = (data.warehouseBreakdown || []).find(w => w.warehouseId === assignedWh);
     const pendingDebts = (data.debtsAndReservations?.pendingSales || []).filter(
       s => (s.warehouseId || MAIN_WAREHOUSE_ID) === assignedWh
@@ -5562,7 +5790,7 @@ class AppController {
               Recibe una notificación en tu iPhone al instante cada vez que un trabajador venda o reserve un vaper.
             </p>
           </div>
-          <span class="badge ${ntfy.enabled ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px]">
+          <span id="ntfyStatusBadge" class="badge ${ntfy.enabled ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px]">
             ${ntfy.enabled ? '● Activo' : 'Pausado'}
           </span>
         </div>
@@ -5627,7 +5855,7 @@ class AppController {
           <div class="font-bold text-emerald-300">📱 Cómo conectar tu iPhone en 20 segundos:</div>
           <ol class="list-decimal list-inside space-y-1">
             <li>Descarga gratis la app <strong>ntfy</strong> en la App Store de tu iPhone.</li>
-            <li>Abre <strong>ntfy</strong>, toca el botón <strong>+</strong> y escribe tu canal: <code class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-bold">${this._escapeHtml(ntfy.topic)}</code></li>
+            <li>Abre <strong>ntfy</strong>, toca el botón <strong>+</strong> y escribe tu canal: <code id="ntfyGuideTopicCode" class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-bold">${this._escapeHtml(ntfy.topic)}</code></li>
             <li>¡Listo! Toca <strong>"🔔 Probar Notificación"</strong> arriba para comprobar que te vibra el iPhone.</li>
           </ol>
         </div>
@@ -5746,7 +5974,7 @@ class AppController {
       <!-- Copias de Seguridad -->
       <div class="ios-card mb-4">
         <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2">
-          <span>💾</span> Copias de Seguridad Locales (v4.1)
+          <span>💾</span> Copias de Seguridad Locales (${APP_VERSION})
         </h3>
         <p class="text-xs text-slate-400 mb-3 leading-relaxed">
           Tus datos (productos, stock por almacén, trabajadores, repartos y ventas) se guardan en este dispositivo (${this.storageAgent.isIndexedDBSupported ? 'IndexedDB' : 'LocalStorage'}).
@@ -5789,7 +6017,7 @@ class AppController {
           </div>
           <div class="flex justify-between">
             <span>Modo Offline:</span>
-            <span class="font-bold text-emerald-400">Activo (Cache PWA v4.1)</span>
+            <span class="font-bold text-emerald-400">Activo (Cache PWA ${APP_VERSION})</span>
           </div>
         </div>
 
@@ -5804,7 +6032,7 @@ class AppController {
       </div>
 
       <div class="text-center text-[11px] text-slate-500 pb-12">
-        Gestor Privado de Inventario y Ventas Multi-Almacén v4.1 (iOS 18 + ntfy Live)<br/>
+        Gestor Privado de Inventario y Ventas Multi-Almacén ${APP_VERSION} (iOS 18 + Supabase + ntfy Live)<br/>
         Arquitectura Modular por Agentes • Diseñado para iOS
       </div>
     `;
@@ -5902,6 +6130,14 @@ class AppController {
   }
 
   async _applySessionStateAndRefresh(session) {
+    this.lastCompletedSale = null;
+    this.selectedProductForSale = null;
+    this.salesSearchQuery = '';
+    this.inventorySearchQuery = '';
+    this.analyticsOrderFilter = 'all';
+    this.newOrderDraft = null;
+    this.batchTransferQuantities = {};
+
     if (session.role === 'worker' && session.warehouseId) {
       this.activeSaleWarehouseId = session.warehouseId;
       this.saleWarehouseId = session.warehouseId;
@@ -6027,7 +6263,9 @@ class AppController {
   }
 
   async copyNtfyTopic() {
-    const topic = document.getElementById('inputNtfyTopic')?.value || this.notificationsAgent.getSettings().topic;
+    const raw = document.getElementById('inputNtfyTopic')?.value || '';
+    const cleaned = raw.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    const topic = cleaned || this.notificationsAgent.getSettings().topic;
     await this._copyTextToClipboard(topic, `Canal ntfy "${topic}" copiado`);
   }
 
@@ -6038,13 +6276,23 @@ class AppController {
     const notifyReservations = document.getElementById('chkNtfyRes')?.checked;
     const notifyBossSales = document.getElementById('chkNtfyBoss')?.checked;
 
-    this.notificationsAgent.saveSettings({
+    const saved = this.notificationsAgent.saveSettings({
       ...(topic !== undefined ? { topic } : {}),
       ...(enabled !== undefined ? { enabled } : {}),
       ...(notifyWorkerSales !== undefined ? { notifyWorkerSales } : {}),
       ...(notifyReservations !== undefined ? { notifyReservations } : {}),
       ...(notifyBossSales !== undefined ? { notifyBossSales } : {})
     });
+
+    const badge = document.getElementById('ntfyStatusBadge');
+    if (badge) {
+      badge.textContent = saved.enabled ? '● Activo' : 'Pausado';
+      badge.className = `badge ${saved.enabled ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px]`;
+    }
+    const codeEl = document.getElementById('ntfyGuideTopicCode');
+    if (codeEl) {
+      codeEl.textContent = saved.topic;
+    }
 
     this.cloudSyncAgent.restartLiveStream();
     this.applyRoleUI();
@@ -6083,15 +6331,23 @@ class AppController {
   }
 
   async pullCloudSyncNow() {
-    if (this.supabaseAgent.isConfigured()) {
-      await this.supabaseAgent.syncFromCloud();
-    } else {
-      await this.cloudSyncAgent.pullCachedEvents();
+    try {
+      if (this.supabaseAgent.isConfigured()) {
+        await this.supabaseAgent.syncFromCloud();
+      } else {
+        const res = await this.cloudSyncAgent.pullCachedEvents();
+        if (res && res.synced === false) {
+          this.showToast('No hay cambios nuevos o falla la conexión', '⚠️');
+          return;
+        }
+      }
+      this._playChime('success');
+      this.showToast('Stock sincronizado desde la nube', '☁️');
+      await this.renderCurrentTab();
+      await this.updateHeaderQuickStats();
+    } catch (err) {
+      this.showToast(`Error sincronizando: ${err?.message || 'sin conexión'}`, '⚠️');
     }
-    this._playChime('success');
-    this.showToast('Stock sincronizado desde la nube', '☁️');
-    await this.renderCurrentTab();
-    await this.updateHeaderQuickStats();
   }
 
   async saveSupabaseConfigFromView() {
@@ -6099,7 +6355,11 @@ class AppController {
     const anonKey = document.getElementById('inputSupabaseAnonKey')?.value || '';
 
     try {
-      const res = await this.supabaseAgent.saveConfig({ url, anonKey });
+      const res = await this.supabaseAgent.saveConfig({
+        url,
+        anonKey,
+        onRemoteEvent: (evt) => this.handleRemoteSyncEvent(evt)
+      });
       if (res && res.connected) {
         this._playChime('success');
         this.showToast('¡Conectado a Supabase PostgreSQL en vivo!', '🗄️');
@@ -6170,7 +6430,8 @@ class AppController {
   }
 
   async importDataBackup(event) {
-    const file = event.target.files[0];
+    const inputEl = event.target;
+    const file = inputEl?.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
@@ -6179,6 +6440,14 @@ class AppController {
         const json = JSON.parse(e.target.result);
         if (confirm('¿Restaurar esta copia de seguridad? Se reemplazarán los datos actuales.')) {
           await this.storageAgent.importBackup(json);
+          this.lastCompletedSale = null;
+          this.analyticsOrderFilter = 'all';
+          this.newOrderDraft = null;
+          this.batchTransferQuantities = {};
+          if (this.supabaseAgent.isConfigured()) {
+            await this.supabaseAgent.pushAllLocalToCloud().catch(() => {});
+          }
+          this.scheduleCloudSnapshotPublish();
           this._playChime('success');
           this.showToast('Copia restaurada con éxito', '✓');
           await this.renderSettingsView();
@@ -6186,6 +6455,8 @@ class AppController {
         }
       } catch (err) {
         alert('Archivo de copia no válido: ' + err.message);
+      } finally {
+        if (inputEl) inputEl.value = '';
       }
     };
     reader.readAsText(file);
@@ -6196,9 +6467,13 @@ class AppController {
       return;
     }
     await this.storageAgent.setNewProductCatalog();
+    this.lastCompletedSale = null;
+    this.analyticsOrderFilter = 'all';
+    this.batchTransferQuantities = {};
+    this.newOrderDraft = null;
     this._playChime('success');
     this.showToast('¡10 Sabores cargados en Mi Almacén Principal!', '✓');
-    this.switchTab('sales');
+    await this.switchTab('sales');
   }
 
   // =========================================================================
@@ -6251,7 +6526,7 @@ class AppController {
                       </span>
                     </div>
                     <div class="text-[10px] text-slate-400 mt-0.5">
-                      ${dateStr}${ord.supplier ? ` • ${this._escapeHtml(ord.supplier)}` : ''} • ${ord.flavorsCount} sabores (${ord.initialUnits} uds)
+                      ${dateStr}${(ord.supplier || ord.notes) ? ` • ${this._escapeHtml(ord.supplier || ord.notes)}` : ''} • ${ord.flavorsCount} sabores (${ord.initialUnits} uds)
                     </div>
                   </div>
                   <span class="badge ${ord.roiPct >= 0 ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px] flex-shrink-0">
@@ -6304,7 +6579,7 @@ class AppController {
                 <div class="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onclick="window.app.setAnalyticsOrderFilter('${isSelected ? 'all' : ord.id}')"
+                    onclick="window.app.setAnalyticsOrderFilter('${this._escJsAttr(isSelected ? 'all' : ord.id)}')"
                     class="btn-pressable flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold border ${
                       isSelected
                         ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/50'
@@ -6316,7 +6591,7 @@ class AppController {
                   ${isActive ? `
                     <button
                       type="button"
-                      onclick="window.app.closeOrderAction('${ord.id}')"
+                      onclick="window.app.closeOrderAction('${this._escJsAttr(ord.id)}')"
                       class="btn-pressable py-1.5 px-2.5 rounded-xl text-[11px] font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
                       title="Marcar este pedido como terminado"
                     >🏁 Terminar</button>
@@ -6368,14 +6643,24 @@ class AppController {
       supplier: '',
       notes: '',
       resetExistingStock: true,
-      existingItems: products.map(p => ({
-        productId: p.id,
-        name: p.name,
-        currentStock: p.stock || 0,
-        costPrice: parseFloat(p.costPrice) || 6.70,
-        sellPrice: parseFloat(p.sellPrice) || 12.00,
-        quantity: 0
-      })),
+      newFlavorForm: {
+        name: '',
+        costPrice: '6.70',
+        sellPrice: '12.00',
+        quantity: '10'
+      },
+      existingItems: products.map(p => {
+        const cp = parseFloat(p.costPrice);
+        const sp = parseFloat(p.sellPrice);
+        return {
+          productId: p.id,
+          name: p.name,
+          currentStock: p.stock || 0,
+          costPrice: Number.isFinite(cp) ? cp : 6.70,
+          sellPrice: Number.isFinite(sp) ? sp : 12.00,
+          quantity: 0
+        };
+      }),
       newItems: []
     };
 
@@ -6384,19 +6669,56 @@ class AppController {
     this._playChime('tap');
   }
 
+  _calcNewOrderTotals() {
+    const draft = this.newOrderDraft;
+    if (!draft) return { totalUnits: 0, totalFlavors: 0, totalCost: 0, totalExpected: 0 };
+    const existingActive = draft.existingItems.filter(it => (parseInt(it.quantity, 10) || 0) > 0);
+    const totalUnits = existingActive.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0)
+      + draft.newItems.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0);
+    const totalFlavors = existingActive.length + draft.newItems.length;
+    const totalCost = existingActive.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (Number.isFinite(parseFloat(it.costPrice)) ? parseFloat(it.costPrice) : 0)), 0)
+      + draft.newItems.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (Number.isFinite(parseFloat(it.costPrice)) ? parseFloat(it.costPrice) : 0)), 0);
+    const totalExpected = existingActive.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (Number.isFinite(parseFloat(it.sellPrice)) ? parseFloat(it.sellPrice) : 12)), 0)
+      + draft.newItems.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (Number.isFinite(parseFloat(it.sellPrice)) ? parseFloat(it.sellPrice) : 12)), 0);
+    return { totalUnits, totalFlavors, totalCost, totalExpected };
+  }
+
+  _updateNewOrderSummaryDom(changedIdx = null, keepEmptyQty = false) {
+    const draft = this.newOrderDraft;
+    if (!draft) return;
+
+    if (changedIdx !== null && draft.existingItems[changedIdx]) {
+      const item = draft.existingItems[changedIdx];
+      const rowEl = document.getElementById(`orderExistingRow_${changedIdx}`);
+      if (rowEl) {
+        rowEl.className = `bg-slate-900/85 p-2 rounded-xl border ${item.quantity > 0 ? 'border-emerald-500/50 bg-emerald-950/20' : 'border-slate-800'} flex items-center justify-between gap-2`;
+      }
+      const qtyInput = document.getElementById(`orderExistingQty_${changedIdx}`);
+      if (qtyInput && !keepEmptyQty && document.activeElement !== qtyInput) {
+        qtyInput.value = item.quantity;
+      }
+    }
+
+    const { totalUnits, totalFlavors, totalCost, totalExpected } = this._calcNewOrderTotals();
+    const unitsEl = document.getElementById('newOrderTotalUnitsText');
+    if (unitsEl) unitsEl.textContent = `${totalUnits} uds (${totalFlavors} sabores)`;
+    const moneyEl = document.getElementById('newOrderTotalMoneyText');
+    if (moneyEl) moneyEl.innerHTML = `${totalCost.toFixed(2)}€ <span class="text-emerald-400">→ ${totalExpected.toFixed(2)}€</span>`;
+    const btn = document.getElementById('btnConfirmNewOrder');
+    if (btn) {
+      btn.disabled = totalUnits <= 0;
+      const lbl = document.getElementById('btnConfirmNewOrderLabel');
+      if (lbl) lbl.textContent = `📦 Guardar Nuevo Pedido y Actualizar Stock (${totalUnits} uds)`;
+    }
+  }
+
   renderNewOrderModalBody() {
     const body = document.getElementById('newOrderModalBody');
     const draft = this.newOrderDraft;
     if (!body || !draft) return;
 
-    const existingActive = draft.existingItems.filter(it => (parseInt(it.quantity, 10) || 0) > 0);
-    const totalUnits = existingActive.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0)
-      + draft.newItems.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0);
-    const totalFlavors = existingActive.length + draft.newItems.length;
-    const totalCost = existingActive.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.costPrice) || 0)), 0)
-      + draft.newItems.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.costPrice) || 0)), 0);
-    const totalExpected = existingActive.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.sellPrice) || 12)), 0)
-      + draft.newItems.reduce((s, it) => s + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.sellPrice) || 12)), 0);
+    const form = draft.newFlavorForm || (draft.newFlavorForm = { name: '', costPrice: '6.70', sellPrice: '12.00', quantity: '10' });
+    const { totalUnits, totalFlavors, totalCost, totalExpected } = this._calcNewOrderTotals();
 
     body.innerHTML = `
       <div class="flex items-center justify-between mb-3">
@@ -6425,7 +6747,7 @@ class AppController {
             <input
               type="text"
               value="${this._escapeHtml(draft.notes)}"
-              oninput="window.app.newOrderDraft.notes = this.value"
+              oninput="window.app.newOrderDraft.notes = this.value; window.app.newOrderDraft.supplier = this.value;"
               placeholder="Ej: Caja grande, nuevos sabores..."
               class="w-full bg-slate-900 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-emerald-500"
             />
@@ -6468,14 +6790,18 @@ class AppController {
             <input
               type="text"
               id="orderNewFlavorName"
+              value="${this._escapeHtml(form.name)}"
+              oninput="window.app.newOrderDraft.newFlavorForm.name = this.value"
               placeholder="Nombre del sabor (ej. Watermelon Ice 🍉🧊)"
               class="col-span-12 sm:col-span-6 bg-slate-900 text-white px-2.5 py-2 rounded-xl border border-slate-700 text-xs"
             />
             <input
               type="number"
               step="0.01"
+              min="0"
               id="orderNewFlavorCost"
-              value="6.70"
+              value="${this._escapeHtml(form.costPrice)}"
+              oninput="window.app.newOrderDraft.newFlavorForm.costPrice = this.value"
               placeholder="Coste"
               title="Coste (€)"
               class="col-span-4 sm:col-span-2 bg-slate-900 text-slate-200 text-center px-2 py-2 rounded-xl border border-slate-700 text-xs"
@@ -6483,8 +6809,10 @@ class AppController {
             <input
               type="number"
               step="0.01"
+              min="0"
               id="orderNewFlavorSell"
-              value="12.00"
+              value="${this._escapeHtml(form.sellPrice)}"
+              oninput="window.app.newOrderDraft.newFlavorForm.sellPrice = this.value"
               placeholder="PVP"
               title="PVP (€)"
               class="col-span-4 sm:col-span-2 bg-slate-900 text-white font-bold text-center px-2 py-2 rounded-xl border border-slate-700 text-xs"
@@ -6493,7 +6821,8 @@ class AppController {
               type="number"
               min="1"
               id="orderNewFlavorQty"
-              value="10"
+              value="${this._escapeHtml(form.quantity)}"
+              oninput="window.app.newOrderDraft.newFlavorForm.quantity = this.value"
               placeholder="Uds"
               title="Unidades"
               class="col-span-4 sm:col-span-2 bg-slate-900 text-emerald-400 font-black text-center px-2 py-2 rounded-xl border border-slate-700 text-xs"
@@ -6530,24 +6859,25 @@ class AppController {
           </div>
           <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
             ${draft.existingItems.map((item, idx) => `
-              <div class="bg-slate-900/85 p-2 rounded-xl border ${item.quantity > 0 ? 'border-emerald-500/50 bg-emerald-950/20' : 'border-slate-800'} flex items-center justify-between gap-2">
+              <div id="orderExistingRow_${idx}" class="bg-slate-900/85 p-2 rounded-xl border ${item.quantity > 0 ? 'border-emerald-500/50 bg-emerald-950/20' : 'border-slate-800'} flex items-center justify-between gap-2">
                 <div class="min-w-0 flex-1">
                   <div class="text-xs font-bold text-white truncate">${this._escapeHtml(item.name)}</div>
                   <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
                     <span>Coste:</span>
-                    <input type="number" step="0.01" value="${item.costPrice}" onchange="window.app.setOrderExistingPrice(${idx}, 'costPrice', this.value)" class="w-12 bg-slate-950 text-slate-200 text-center rounded border border-slate-700 py-0.5 text-[10px]" />
+                    <input type="number" step="0.01" min="0" value="${item.costPrice}" oninput="window.app.setOrderExistingPrice(${idx}, 'costPrice', this.value)" class="w-12 bg-slate-950 text-slate-200 text-center rounded border border-slate-700 py-0.5 text-[10px]" />
                     <span>PVP:</span>
-                    <input type="number" step="0.01" value="${item.sellPrice}" onchange="window.app.setOrderExistingPrice(${idx}, 'sellPrice', this.value)" class="w-12 bg-slate-950 text-white text-center rounded border border-slate-700 py-0.5 text-[10px]" />
+                    <input type="number" step="0.01" min="0" value="${item.sellPrice}" oninput="window.app.setOrderExistingPrice(${idx}, 'sellPrice', this.value)" class="w-12 bg-slate-950 text-white text-center rounded border border-slate-700 py-0.5 text-[10px]" />
                     <span class="text-slate-500">(había ${item.currentStock})</span>
                   </div>
                 </div>
                 <div class="flex items-center gap-1 flex-shrink-0">
                   <button type="button" onclick="window.app.stepOrderExistingQty(${idx}, -1)" class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-white font-bold text-xs">-</button>
                   <input
+                    id="orderExistingQty_${idx}"
                     type="number"
                     min="0"
                     value="${item.quantity}"
-                    onchange="window.app.setOrderExistingQty(${idx}, this.value)"
+                    oninput="window.app.setOrderExistingQty(${idx}, this.value)"
                     class="w-11 text-center bg-slate-950 text-white font-black text-xs py-1 rounded-lg border border-slate-700"
                   />
                   <button type="button" onclick="window.app.stepOrderExistingQty(${idx}, 1)" class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-white font-bold text-xs">+</button>
@@ -6562,21 +6892,22 @@ class AppController {
         <div class="bg-slate-900/90 p-3 rounded-2xl border border-white/10 flex items-center justify-between text-xs tabular-nums">
           <div>
             <div class="text-[10px] text-slate-400">Total Recuento Nuevo Pedido</div>
-            <div class="text-base font-black text-white">${totalUnits} uds (${totalFlavors} sabores)</div>
+            <div id="newOrderTotalUnitsText" class="text-base font-black text-white">${totalUnits} uds (${totalFlavors} sabores)</div>
           </div>
           <div class="text-right">
             <div class="text-[10px] text-slate-400">Inversión / Venta Est.</div>
-            <div class="text-xs font-bold text-slate-200">${totalCost.toFixed(2)}€ <span class="text-emerald-400">→ ${totalExpected.toFixed(2)}€</span></div>
+            <div id="newOrderTotalMoneyText" class="text-xs font-bold text-slate-200">${totalCost.toFixed(2)}€ <span class="text-emerald-400">→ ${totalExpected.toFixed(2)}€</span></div>
           </div>
         </div>
 
         <button
+          id="btnConfirmNewOrder"
           type="button"
           onclick="window.app.confirmSaveNewOrder()"
           ${totalUnits <= 0 ? 'disabled' : ''}
           class="btn-primary btn-pressable"
         >
-          <span>📦 Guardar Nuevo Pedido y Actualizar Stock (${totalUnits} uds)</span>
+          <span id="btnConfirmNewOrderLabel">📦 Guardar Nuevo Pedido y Actualizar Stock (${totalUnits} uds)</span>
         </button>
       </div>
     `;
@@ -6594,22 +6925,24 @@ class AppController {
     const item = this.newOrderDraft.existingItems[idx];
     item.quantity = Math.max(0, (parseInt(item.quantity, 10) || 0) + delta);
     this._playChime('tap');
-    this.renderNewOrderModalBody();
+    this._updateNewOrderSummaryDom(idx, false);
   }
 
   setOrderExistingQty(idx, val) {
     if (!this.newOrderDraft || !this.newOrderDraft.existingItems[idx]) return;
-    this.newOrderDraft.existingItems[idx].quantity = Math.max(0, parseInt(val, 10) || 0);
-    this.renderNewOrderModalBody();
+    const raw = String(val ?? '').trim();
+    const parsed = raw === '' ? 0 : (parseInt(raw, 10) || 0);
+    this.newOrderDraft.existingItems[idx].quantity = Math.max(0, parsed);
+    this._updateNewOrderSummaryDom(idx, raw === '');
   }
 
   setOrderExistingPrice(idx, field, val) {
     if (!this.newOrderDraft || !this.newOrderDraft.existingItems[idx]) return;
     const parsed = parseFloat(val);
-    if (!isNaN(parsed) && parsed >= 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       this.newOrderDraft.existingItems[idx][field] = parsed;
+      this._updateNewOrderSummaryDom(null, true);
     }
-    this.renderNewOrderModalBody();
   }
 
   addNewFlavorToOrderDraft() {
@@ -6626,9 +6959,17 @@ class AppController {
       return;
     }
 
-    const costPrice = parseFloat(costEl?.value) || 6.70;
-    const sellPrice = parseFloat(sellEl?.value) || 12.00;
-    const quantity = Math.max(1, parseInt(qtyEl?.value, 10) || 1);
+    const parsedCost = parseFloat(costEl?.value);
+    const parsedSell = parseFloat(sellEl?.value);
+    const parsedQty = parseInt(qtyEl?.value, 10);
+    if (!Number.isFinite(parsedQty) || parsedQty < 1) {
+      alert('Las unidades deben ser al menos 1.');
+      if (qtyEl) qtyEl.focus();
+      return;
+    }
+    const costPrice = (Number.isFinite(parsedCost) && parsedCost >= 0) ? parsedCost : 6.70;
+    const sellPrice = (Number.isFinite(parsedSell) && parsedSell >= 0) ? parsedSell : 12.00;
+    const quantity = parsedQty;
 
     this.newOrderDraft.newItems.push({
       name,
@@ -6638,6 +6979,9 @@ class AppController {
       quantity
     });
 
+    if (this.newOrderDraft.newFlavorForm) {
+      this.newOrderDraft.newFlavorForm.name = '';
+    }
     this._playChime('success');
     this.renderNewOrderModalBody();
   }
@@ -6680,10 +7024,10 @@ class AppController {
   // ==========================================
   setupServiceWorker() {
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=4.5')
+      const registerSW = () => {
+        navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION.replace(/^v/, '')}`)
           .then(reg => {
-            console.log('Service Worker v4.5 registrado correctamente');
+            console.log(`Service Worker ${APP_VERSION} registrado correctamente`);
             reg.update();
           })
           .catch(err => console.log('Registro SW opcional omitido:', err));
@@ -6692,7 +7036,13 @@ class AppController {
           console.log('Nuevo Service Worker activado. Recargando interfaz...');
           window.location.reload();
         });
-      });
+      };
+
+      if (document.readyState === 'complete') {
+        registerSW();
+      } else {
+        window.addEventListener('load', registerSW, { once: true });
+      }
     }
   }
 }

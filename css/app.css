@@ -28,12 +28,22 @@
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
   user-select: none;
 }
 
 input, textarea, select {
+  -webkit-user-select: auto;
   user-select: auto;
   font-family: inherit;
+}
+
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 html, body {
@@ -223,7 +233,7 @@ html, body {
     width: auto;
     min-width: 470px;
     max-width: 560px;
-    bottom: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom));
     border-radius: 30px;
     padding: 7px 10px;
   }
@@ -549,12 +559,15 @@ html, body {
   align-items: flex-end;
   justify-content: center;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.28s var(--ios-spring);
+  overscroll-behavior: contain;
+  transition: opacity 0.28s var(--ios-spring), visibility 0.28s ease;
 }
 
 .modal-overlay.active {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 

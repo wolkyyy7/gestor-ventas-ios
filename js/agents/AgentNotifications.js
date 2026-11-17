@@ -43,10 +43,11 @@ export class AgentNotifications {
       const raw = localStorage.getItem(STORAGE_KEY_NTFY);
       if (raw) {
         const parsed = JSON.parse(raw);
+        const rawTopic = (parsed.topic && String(parsed.topic).trim()) ? String(parsed.topic).trim().replace(/[^a-zA-Z0-9_-]/g, '') : '';
         const merged = {
           ...defaults,
           ...parsed,
-          topic: (parsed.topic && String(parsed.topic).trim()) ? String(parsed.topic).trim() : defaults.topic,
+          topic: rawTopic || defaults.topic,
           serverUrl: (parsed.serverUrl && String(parsed.serverUrl).trim())
             ? String(parsed.serverUrl).trim().replace(/\/+$/, '')
             : defaults.serverUrl
@@ -185,7 +186,8 @@ export class AgentNotifications {
         return {
           sent: false,
           status: response.status,
-          reason: `http_${response.status}`
+          reason: `http_${response.status}`,
+          error: `Error HTTP ${response.status} al enviar a ntfy`
         };
       }
 

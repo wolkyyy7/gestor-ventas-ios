@@ -56,7 +56,7 @@ export class AgentSales {
     }
 
     const unitPrice = parseFloat(finalUnitPrice);
-    if (isNaN(unitPrice) || unitPrice < 0) {
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw new Error('El precio final de venta debe ser un número válido.');
     }
 
@@ -71,7 +71,10 @@ export class AgentSales {
       throw new Error('Para registrar una venta fiada (pendiente de cobro), indica el nombre del cliente.');
     }
 
-    const targetWh = (!warehouseId || warehouseId === 'all') ? MAIN_WAREHOUSE_ID : warehouseId;
+    if (warehouseId === 'all') {
+      throw new Error('Selecciona un almacén concreto para registrar la venta.');
+    }
+    const targetWh = warehouseId || MAIN_WAREHOUSE_ID;
 
     // 2. Obtener producto, almacén y pedido activo
     const [product, warehouse, activeOrder] = await Promise.all([
@@ -83,8 +86,11 @@ export class AgentSales {
     if (!product) {
       throw new Error(`Producto no encontrado en inventario (ID: ${productId}).`);
     }
+    if (!warehouse) {
+      throw new Error('El almacén seleccionado ya no existe.');
+    }
 
-    const warehouseName = warehouse?.name || 'Mi Almacén (Principal)';
+    const warehouseName = warehouse.name || 'Mi Almacén (Principal)';
     const workerName = warehouse?.workerName || '';
     const availableInWarehouse = this.inventory.getProductStock(product, targetWh);
 
@@ -180,13 +186,17 @@ export class AgentSales {
   ) {
     const allReservations = await this.storage.getAllReservations();
     const res = allReservations.find(r => r.id === reservationId);
-    if (!res) {
-      throw new Error('La reserva seleccionada ya no existe.');
+    if (!res || (res.status || 'active') !== 'active') {
+      throw new Error('La reserva seleccionada ya no existe o ya fue entregada.');
     }
 
-    const unitPrice = (finalUnitPrice !== null && finalUnitPrice !== undefined && finalUnitPrice !== '')
+    const parsedOverride = (finalUnitPrice !== null && finalUnitPrice !== undefined && finalUnitPrice !== '')
       ? parseFloat(finalUnitPrice)
-      : (parseFloat(res.agreedUnitPrice) || 12.00);
+      : NaN;
+    const parsedAgreed = parseFloat(res.agreedUnitPrice);
+    const unitPrice = Number.isFinite(parsedOverride)
+      ? parsedOverride
+      : (Number.isFinite(parsedAgreed) ? parsedAgreed : 12.00);
 
     const combinedNotes = (notes && notes.trim())
       ? notes.trim()
@@ -215,9 +225,15 @@ export class AgentSales {
       throw new Error('Venta no encontrada.');
     }
 
+    if (paymentMethod && !['Efectivo', 'Tarjeta'].includes(paymentMethod)) {
+      throw new Error('El método de pago debe ser "Efectivo" o "Tarjeta".');
+    }
+
     sale.paymentStatus = 'paid';
-    sale.paidAt = new Date().toISOString();
-    if (paymentMethod && ['Efectivo', 'Tarjeta'].includes(paymentMethod)) {
+    if (!sale.paidAt) {
+      sale.paidAt = new Date().toISOString();
+    }
+    if (paymentMethod) {
       sale.paymentMethod = paymentMethod;
     }
 
@@ -226,7 +242,7 @@ export class AgentSales {
     return {
       success: true,
       sale,
-      message: `Deuda cobrada: ${sale.grossTotal.toFixed(2)}€ de ${sale.buyerName || 'Cliente'} (${sale.paymentMethod}).`
+      message: `Deuda cobrada: ${Number(sale.grossTotal || 0).toFixed(2)}€ de ${sale.buyerName || 'Cliente'} (${sale.paymentMethod}).`
     };
   }
 
@@ -240,8 +256,16 @@ export class AgentSales {
       throw new Error('Venta no encontrada.');
     }
 
-    if (buyerName !== undefined) sale.buyerName = buyerName.trim();
-    if (notes !== undefined) sale.notes = notes.trim();
+    if (buyerName !== undefined && buyerName !== null) {
+      const cleanBuyer = String(buyerName).trim();
+      if (sale.paymentStatus === 'pending' && !cleanBuyer) {
+        throw new Error('Las ventas fiadas deben conservar el nombre del cliente.');
+      }
+      sale.buyerName = cleanBuyer;
+    }
+    if (notes !== undefined && notes !== null) {
+      sale.notes = String(notes).trim();
+    }
 
     await this.storage.saveSale(sale);
 
@@ -269,8 +293,10 @@ export class AgentSales {
     const targetWhName = sale.warehouseName || 'Mi Almacén (Principal)';
 
     // Devolver el stock al almacén original
+    let stockRestored = false;
     try {
       await this.inventory.adjustStock(sale.productId, sale.quantity, targetWh);
+      stockRestored = true;
     } catch (err) {
       console.warn('No se pudo reponer stock (posiblemente el producto fue eliminado):', err);
     }
@@ -281,7 +307,10 @@ export class AgentSales {
     return {
       success: true,
       revertedSale: sale,
-      message: `Venta anulada. Devueltas ${sale.quantity} uds de "${sale.productName}" a "${targetWhName}".`
+      stockRestored,
+      message: stockRestored
+        ? `Venta anulada. Devueltas ${sale.quantity} uds de "${sale.productName}" a "${targetWhName}".`
+        : `Venta anulada (no se pudo reponer el stock en inventario).`
     };
   }
 

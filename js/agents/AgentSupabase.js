@@ -69,10 +69,14 @@ export class AgentSupabase {
     return { ...this.config };
   }
 
-  async saveConfig({ url, anonKey }) {
+  async saveConfig({ url, anonKey, onRemoteEvent = null }) {
     const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
     const cleanKey = String(anonKey || '').trim();
     this.config = { url: cleanUrl, anonKey: cleanKey };
+    this.lastError = null;
+    if (onRemoteEvent) {
+      this.onRemoteEvent = onRemoteEvent;
+    }
     try {
       localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(this.config));
     } catch (_) {}
@@ -83,6 +87,7 @@ export class AgentSupabase {
     if (this.isConfigured()) {
       return await this.init(this.onRemoteEvent);
     }
+    this.isConnected = false;
     return { configured: false };
   }
 
@@ -118,11 +123,16 @@ export class AgentSupabase {
    */
   async _restRequest(path, { method = 'GET', body = null, prefer = '' } = {}) {
     if (!this.isConfigured()) throw new Error('Supabase no configurado');
+    const key = String(this.config.anonKey || '').trim();
     const headers = {
-      apikey: this.config.anonKey,
-      Authorization: `Bearer ${this.config.anonKey}`,
+      apikey: key,
       'Content-Type': 'application/json'
     };
+    // Las claves modernas sb_publishable_* / sb_secret_* no son JWTs y fallan con PGRST301
+    // si se envían en Authorization: Bearer. Solo incluimos Bearer para claves JWT (3 segmentos).
+    if (key.split('.').length === 3 && key.startsWith('eyJ')) {
+      headers.Authorization = `Bearer ${key}`;
+    }
     if (prefer) headers.Prefer = prefer;
 
     const res = await fetch(`${this.config.url}/rest/v1/${path}`, {
@@ -220,6 +230,7 @@ export class AgentSupabase {
   }
 
   _toDbSale(s) {
+    const numOr = (v, fb) => (v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : fb;
     return {
       id: s.id,
       timestamp: s.timestamp || new Date().toISOString(),
@@ -229,9 +240,9 @@ export class AgentSupabase {
       warehouse_id: s.warehouseId || MAIN_WAREHOUSE_ID,
       warehouse_name: s.warehouseName || 'Mi Almacén (Principal)',
       worker_name: s.workerName || '',
-      cost_price: Number(s.costPrice) || 0,
-      catalog_unit_price: Number(s.catalogUnitPrice) || Number(s.unitPrice) || 12,
-      unit_price: Number(s.unitPrice) || 0,
+      cost_price: numOr(s.costPrice, 0),
+      catalog_unit_price: numOr(s.catalogUnitPrice, numOr(s.unitPrice, 12)),
+      unit_price: numOr(s.unitPrice, 0),
       quantity: parseInt(s.quantity, 10) || 1,
       gross_total: Number(s.grossTotal) || 0,
       total_cost: Number(s.totalCost) || 0,
@@ -253,6 +264,7 @@ export class AgentSupabase {
 
   _fromDbSale(row) {
     if (!row) return null;
+    const numOr = (v, fb) => (v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : fb;
     return {
       id: row.id,
       timestamp: row.timestamp || new Date().toISOString(),
@@ -262,9 +274,9 @@ export class AgentSupabase {
       warehouseId: row.warehouse_id || MAIN_WAREHOUSE_ID,
       warehouseName: row.warehouse_name || 'Mi Almacén (Principal)',
       workerName: row.worker_name || '',
-      costPrice: Number(row.cost_price) || 0,
-      catalogUnitPrice: Number(row.catalog_unit_price) || Number(row.unit_price) || 12,
-      unitPrice: Number(row.unit_price) || 0,
+      costPrice: numOr(row.cost_price, 0),
+      catalogUnitPrice: numOr(row.catalog_unit_price, numOr(row.unit_price, 12)),
+      unitPrice: numOr(row.unit_price, 0),
       quantity: parseInt(row.quantity, 10) || 1,
       grossTotal: Number(row.gross_total) || 0,
       totalCost: Number(row.total_cost) || 0,
@@ -285,6 +297,7 @@ export class AgentSupabase {
   }
 
   _toDbReservation(r) {
+    const numOr = (v, fb) => (v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : fb;
     return {
       id: r.id,
       product_id: r.productId || null,
@@ -293,7 +306,7 @@ export class AgentSupabase {
       warehouse_name: r.warehouseName || 'Mi Almacén (Principal)',
       quantity: parseInt(r.quantity, 10) || 1,
       customer_name: r.customerName || 'Cliente',
-      agreed_unit_price: Number(r.agreedUnitPrice) || 12,
+      agreed_unit_price: numOr(r.agreedUnitPrice, 12),
       notes: r.notes || '',
       status: r.status || 'active',
       created_at: r.createdAt || new Date().toISOString(),
@@ -303,6 +316,7 @@ export class AgentSupabase {
 
   _fromDbReservation(row) {
     if (!row) return null;
+    const numOr = (v, fb) => (v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : fb;
     return {
       id: row.id,
       productId: row.product_id || null,
@@ -311,7 +325,7 @@ export class AgentSupabase {
       warehouseName: row.warehouse_name || 'Mi Almacén (Principal)',
       quantity: parseInt(row.quantity, 10) || 1,
       customerName: row.customer_name || 'Cliente',
-      agreedUnitPrice: Number(row.agreed_unit_price) || 12,
+      agreedUnitPrice: numOr(row.agreed_unit_price, 12),
       notes: row.notes || '',
       status: row.status || 'active',
       createdAt: row.created_at || new Date().toISOString(),
@@ -454,6 +468,7 @@ export class AgentSupabase {
   async syncFromCloud() {
     if (!this.isConfigured()) return { synced: false };
 
+    let ordersFetchOk = true;
     const [whRows, prodRows, saleRows, resRows, trfRows, stlRows, cfgRows, ordRows] = await Promise.all([
       this._restRequest('warehouses?select=*'),
       this._restRequest('products?select=*'),
@@ -462,7 +477,11 @@ export class AgentSupabase {
       this._restRequest('transfers?select=*&order=timestamp.desc&limit=200'),
       this._restRequest('settlements?select=*&order=timestamp.desc&limit=200'),
       this._restRequest('app_config?select=*'),
-      this._restRequest('orders?select=*&order=created_at.desc').catch(() => [])
+      this._restRequest('orders?select=*&order=created_at.desc').catch((err) => {
+        ordersFetchOk = false;
+        console.warn('AgentSupabase: No se pudo descargar tabla orders:', err?.message || err);
+        return null;
+      })
     ]);
 
     const hasRemoteData = (prodRows && prodRows.length > 0) || (whRows && whRows.length > 0);
@@ -482,7 +501,9 @@ export class AgentSupabase {
       reservations: (resRows || []).map(r => this._fromDbReservation(r)).filter(Boolean),
       transfers: (trfRows || []).map(r => this._fromDbTransfer(r)).filter(Boolean),
       settlements: (stlRows || []).map(r => this._fromDbSettlement(r)).filter(Boolean),
-      orders: (ordRows || []).map(r => this._fromDbOrder(r)).filter(Boolean)
+      orders: ordersFetchOk && Array.isArray(ordRows)
+        ? ordRows.map(r => this._fromDbOrder(r)).filter(Boolean)
+        : null
     };
 
     if (this.storage && typeof this.storage.replaceAllFromCloud === 'function') {
@@ -541,7 +562,8 @@ export class AgentSupabase {
           body: sales.map(s => this._toDbSale(s))
         });
       } catch (err) {
-        if (String(err.message || '').includes('order_id')) {
+        const msg = String(err.message || '');
+        if (msg.includes('order_id') || msg.includes('order_name')) {
           await this._restRequest('sales', {
             method: 'POST',
             prefer: 'resolution=merge-duplicates',
@@ -583,7 +605,9 @@ export class AgentSupabase {
         method: 'POST',
         prefer: 'resolution=merge-duplicates',
         body: orders.map(o => this._toDbOrder(o))
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn('AgentSupabase: Error subiendo orders:', err?.message || err);
+      });
     }
     if (authCfg) {
       await this.upsertConfig('auth_config', authCfg);
@@ -696,6 +720,13 @@ export class AgentSupabase {
     this.lastSyncAt = new Date().toISOString();
   }
 
+  async deleteTransfer(id) {
+    if (!this.isConfigured() || !id) return;
+    this._markLocalWrite('transfers', id);
+    await this._restRequest(`transfers?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
+    this.lastSyncAt = new Date().toISOString();
+  }
+
   async upsertSettlement(st) {
     if (!this.isConfigured() || !st) return;
     this._markLocalWrite('settlements', st.id);
@@ -704,6 +735,13 @@ export class AgentSupabase {
       prefer: 'resolution=merge-duplicates',
       body: this._toDbSettlement(st)
     });
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async deleteSettlement(id) {
+    if (!this.isConfigured() || !id) return;
+    this._markLocalWrite('settlements', id);
+    await this._restRequest(`settlements?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
     this.lastSyncAt = new Date().toISOString();
   }
 
@@ -725,14 +763,18 @@ export class AgentSupabase {
       method: 'POST',
       prefer: 'resolution=merge-duplicates',
       body: this._toDbOrder(o)
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn('AgentSupabase: Error guardando order en nube:', err?.message || err);
+    });
     this.lastSyncAt = new Date().toISOString();
   }
 
   async deleteOrder(id) {
     if (!this.isConfigured() || !id) return;
     this._markLocalWrite('orders', id);
-    await this._restRequest(`orders?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    await this._restRequest(`orders?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }).catch((err) => {
+      console.warn('AgentSupabase: Error eliminando order en nube:', err?.message || err);
+    });
     this.lastSyncAt = new Date().toISOString();
   }
 
@@ -775,6 +817,8 @@ export class AgentSupabase {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           this.isConnected = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          this.isConnected = false;
         }
       });
 
@@ -794,7 +838,9 @@ export class AgentSupabase {
   async _handleRealtimeChange(table, payload) {
     if (!payload || !this.storage) return;
     const eventType = payload.eventType;
-    const row = payload.new || payload.old;
+    const isDelete = eventType === 'DELETE';
+    // En Supabase Realtime v2, payload.new es {} (truthy) en eventos DELETE
+    const row = isDelete ? payload.old : (payload.new || payload.old);
     const recordId = row ? (row.id || row.key) : null;
 
     if (recordId && this._isRecentLocalWrite(table, recordId)) {
@@ -805,21 +851,21 @@ export class AgentSupabase {
 
     try {
       if (table === 'products') {
-        if (eventType === 'DELETE' && payload.old?.id) {
-          await this.storage.deleteProduct(payload.old.id, { skipCloudSync: true });
-        } else if (payload.new) {
+        if (isDelete) {
+          if (payload.old?.id) await this.storage.deleteProduct(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new?.id) {
           await this.storage.saveProduct(this._fromDbProduct(payload.new), { skipCloudSync: true });
         }
       } else if (table === 'warehouses') {
-        if (eventType === 'DELETE' && payload.old?.id) {
-          await this.storage.deleteWarehouse(payload.old.id, { skipCloudSync: true });
-        } else if (payload.new) {
+        if (isDelete) {
+          if (payload.old?.id) await this.storage.deleteWarehouse(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new?.id) {
           await this.storage.saveWarehouse(this._fromDbWarehouse(payload.new), { skipCloudSync: true });
         }
       } else if (table === 'sales') {
-        if (eventType === 'DELETE' && payload.old?.id) {
-          await this.storage.deleteSale(payload.old.id, { skipCloudSync: true });
-        } else if (payload.new) {
+        if (isDelete) {
+          if (payload.old?.id) await this.storage.deleteSale(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new?.id) {
           const sale = this._fromDbSale(payload.new);
           await this.storage.saveSale(sale, { skipCloudSync: true });
           if (eventType === 'INSERT' && this.onRemoteEvent) {
@@ -827,21 +873,33 @@ export class AgentSupabase {
           }
         }
       } else if (table === 'reservations') {
-        if (eventType === 'DELETE' && payload.old?.id) {
-          await this.storage.deleteReservation(payload.old.id, { skipCloudSync: true });
-        } else if (payload.new) {
+        if (isDelete) {
+          if (payload.old?.id) await this.storage.deleteReservation(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new?.id) {
           await this.storage.saveReservation(this._fromDbReservation(payload.new), { skipCloudSync: true });
         }
-      } else if (table === 'transfers' && payload.new) {
-        await this.storage.saveTransfer(this._fromDbTransfer(payload.new), { skipCloudSync: true });
-      } else if (table === 'settlements' && payload.new) {
-        await this.storage.saveSettlement(this._fromDbSettlement(payload.new), { skipCloudSync: true });
-      } else if (table === 'app_config' && payload.new?.key) {
-        await this.storage.setConfig(payload.new.key, payload.new.value, { skipCloudSync: true });
+      } else if (table === 'transfers') {
+        if (isDelete) {
+          if (payload.old?.id && typeof this.storage.deleteTransfer === 'function') {
+            await this.storage.deleteTransfer(payload.old.id, { skipCloudSync: true });
+          }
+        } else if (payload.new?.id) {
+          await this.storage.saveTransfer(this._fromDbTransfer(payload.new), { skipCloudSync: true });
+        }
+      } else if (table === 'settlements') {
+        if (isDelete) {
+          if (payload.old?.id) await this.storage.deleteSettlement(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new?.id) {
+          await this.storage.saveSettlement(this._fromDbSettlement(payload.new), { skipCloudSync: true });
+        }
+      } else if (table === 'app_config') {
+        if (!isDelete && payload.new?.key) {
+          await this.storage.setConfig(payload.new.key, payload.new.value, { skipCloudSync: true });
+        }
       } else if (table === 'orders') {
-        if (eventType === 'DELETE' && payload.old?.id) {
-          await this.storage.deleteOrder(payload.old.id, { skipCloudSync: true });
-        } else if (payload.new) {
+        if (isDelete) {
+          if (payload.old?.id) await this.storage.deleteOrder(payload.old.id, { skipCloudSync: true });
+        } else if (payload.new?.id) {
           await this.storage.saveOrder(this._fromDbOrder(payload.new), { skipCloudSync: true });
         }
       }

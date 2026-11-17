@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestor-ventas-ios-v4.5';
+const CACHE_NAME = 'gestor-ventas-ios-v4.6';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -21,7 +21,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[ServiceWorker] Precaching app shell v4.5...');
+      console.log('[ServiceWorker] Precaching app shell v4.6...');
       return cache.addAll(ASSETS_TO_CACHE);
     }).then(() => self.skipWaiting())
   );
@@ -45,10 +45,23 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
+  const url = new URL(event.request.url);
+  // Nunca interceptar streams SSE, API REST de Supabase ni ntfy
+  if (
+    url.hostname.includes('supabase.co') ||
+    url.hostname.includes('ntfy.sh') ||
+    url.pathname.endsWith('/sse') ||
+    url.pathname.includes('/rest/v1/')
+  ) {
+    return;
+  }
+
+  const isSameOrigin = url.origin === self.location.origin;
+
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
+        if (isSameOrigin && networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
@@ -57,7 +70,7 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
+        return caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
           if (cachedResponse) {
             return cachedResponse;
           }

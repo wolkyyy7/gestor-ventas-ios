@@ -197,8 +197,9 @@ export class AgentInventory {
       throw new Error('Almacén del trabajador no encontrado.');
     }
 
+    const cleanAmount = parseFloat(parsedAmount.toFixed(2));
     warehouse.cashSettledAmount = parseFloat(
-      ((parseFloat(warehouse.cashSettledAmount) || 0) + parsedAmount).toFixed(2)
+      ((parseFloat(warehouse.cashSettledAmount) || 0) + cleanAmount).toFixed(2)
     );
     await this.storage.saveWarehouse(warehouse);
 
@@ -207,7 +208,7 @@ export class AgentInventory {
       warehouseId: workerWarehouseId,
       warehouseName: warehouse.name,
       workerName: warehouse.workerName || warehouse.name,
-      amount: parseFloat(parsedAmount.toFixed(2)),
+      amount: cleanAmount,
       notes: (notes || '').trim(),
       timestamp: new Date().toISOString()
     });
@@ -569,10 +570,18 @@ export class AgentInventory {
 
     this._normalizeProductStock(existing);
 
-    if (data.name !== undefined) existing.name = data.name.trim();
-    if (data.category !== undefined) existing.category = data.category.trim();
-    if (data.costPrice !== undefined) existing.costPrice = parseFloat(data.costPrice) || 0;
-    if (data.sellPrice !== undefined) existing.sellPrice = parseFloat(data.sellPrice) || 0;
+    if (data.name !== undefined) existing.name = String(data.name || '').trim();
+    if (data.category !== undefined) existing.category = String(data.category || '').trim();
+    if (data.costPrice !== undefined) {
+      const cp = parseFloat(data.costPrice);
+      if (isNaN(cp)) throw new Error('El precio de coste debe ser un número válido.');
+      existing.costPrice = cp;
+    }
+    if (data.sellPrice !== undefined) {
+      const sp = parseFloat(data.sellPrice);
+      if (isNaN(sp)) throw new Error('El precio de venta debe ser un número válido.');
+      existing.sellPrice = sp;
+    }
 
     if (data.stockByWarehouse && typeof data.stockByWarehouse === 'object') {
       existing.stockByWarehouse = {
@@ -580,10 +589,14 @@ export class AgentInventory {
         ...data.stockByWarehouse
       };
     } else if (data.stock !== undefined) {
+      const parsedStock = parseInt(data.stock, 10);
+      if (isNaN(parsedStock) || parsedStock < 0) {
+        throw new Error('El stock debe ser un número entero mayor o igual a 0.');
+      }
       const targetWh = (data.warehouseId && data.warehouseId !== 'all')
         ? data.warehouseId
         : MAIN_WAREHOUSE_ID;
-      existing.stockByWarehouse[targetWh] = Math.max(0, parseInt(data.stock, 10) || 0);
+      existing.stockByWarehouse[targetWh] = parsedStock;
     }
 
     this._normalizeProductStock(existing);
@@ -595,19 +608,24 @@ export class AgentInventory {
    * Modifica el stock de un almacén específico de forma relativa (+delta o -delta).
    */
   async adjustStock(id, delta, warehouseId = MAIN_WAREHOUSE_ID) {
+    const parsedDelta = parseInt(delta, 10);
+    if (isNaN(parsedDelta)) {
+      throw new Error('La cantidad de ajuste de stock no es válida.');
+    }
+
     const product = await this.storage.getProductById(id);
     if (!product) throw new Error('Producto no encontrado.');
 
     this._normalizeProductStock(product);
     const targetWh = (!warehouseId || warehouseId === 'all') ? MAIN_WAREHOUSE_ID : warehouseId;
     const currentWhStock = product.stockByWarehouse[targetWh] || 0;
-    const newWhStock = currentWhStock + parseInt(delta, 10);
+    const newWhStock = currentWhStock + parsedDelta;
 
     if (newWhStock < 0) {
       const wh = await this.getWarehouse(targetWh);
       const whName = wh ? wh.name : targetWh;
       throw new Error(
-        `Stock insuficiente en "${whName}". Stock actual: ${currentWhStock}, intento de restar: ${Math.abs(delta)}.`
+        `Stock insuficiente en "${whName}". Stock actual: ${currentWhStock}, intento de restar: ${Math.abs(parsedDelta)}.`
       );
     }
 
@@ -718,21 +736,32 @@ export class AgentInventory {
       throw new Error('El almacén de origen y el de destino deben ser distintos.');
     }
 
-    const validItems = (items || [])
-      .map(it => ({ productId: it.productId, quantity: parseInt(it.quantity, 10) || 0 }))
-      .filter(it => it.productId && it.quantity > 0);
+    const aggregatedMap = new Map();
+    for (const it of (items || [])) {
+      if (!it || !it.productId) continue;
+      const qty = parseInt(it.quantity, 10);
+      if (isNaN(qty) || qty < 0) {
+        throw new Error('Las cantidades de transferencia no pueden ser negativas.');
+      }
+      if (qty === 0) continue;
+      aggregatedMap.set(it.productId, (aggregatedMap.get(it.productId) || 0) + qty);
+    }
+    const validItems = Array.from(aggregatedMap.entries()).map(([productId, quantity]) => ({ productId, quantity }));
 
     if (validItems.length === 0) {
       throw new Error('Selecciona al menos un producto con cantidad mayor a 0 para transferir.');
     }
 
-    // Pre-validación atómica de disponibilidad en origen antes de ejecutar
+    // Pre-validación atómica de disponibilidad en origen y almacén destino antes de ejecutar
     const [fromWh, toWh] = await Promise.all([
       this.getWarehouse(fromWarehouseId),
       this.getWarehouse(toWarehouseId)
     ]);
+    if (!toWh) {
+      throw new Error('Almacén de destino no encontrado.');
+    }
     const fromName = fromWh ? fromWh.name : 'Almacén Origen';
-    const toName = toWh ? toWh.name : 'Almacén Destino';
+    const toName = toWh.name;
 
     for (const item of validItems) {
       const prod = await this.storage.getProductById(item.productId);
@@ -1002,7 +1031,7 @@ export class AgentInventory {
     } else {
       visibleItems.forEach((item, idx) => {
         const isOut = item.qty <= 0;
-        const priceTag = showPrices ? ` (${item.sellPrice.toFixed(2)}€)` : '';
+        const priceTag = showPrices ? ` (${Number(item.sellPrice || 0).toFixed(2)}€)` : '';
 
         if (style === 'whatsapp') {
           if (isOut) {

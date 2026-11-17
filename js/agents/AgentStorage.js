@@ -164,16 +164,36 @@ export class AgentStorage {
         }
       };
 
+      request.onblocked = () => {
+        console.warn('AgentStorage: Apertura de IndexedDB bloqueada por otra pestaña');
+      };
+
       request.onsuccess = async (event) => {
         this.db = event.target.result;
-        await this._ensureInitialData();
+        this.db.onversionchange = () => {
+          try { this.db.close(); } catch (_) {}
+          this.db = null;
+        };
+        this.db.onclose = () => {
+          this.db = null;
+        };
+        try {
+          await this._ensureInitialData();
+        } catch (err) {
+          console.error('AgentStorage: Error en _ensureInitialData:', err);
+        }
         resolve(this);
       };
 
-      request.onerror = (event) => {
+      request.onerror = async (event) => {
         console.error('AgentStorage: Error al abrir IndexedDB:', event.target.error);
         this.isIndexedDBSupported = false;
-        this._ensureInitialData().then(() => resolve(this));
+        try {
+          await this._ensureInitialData();
+        } catch (err) {
+          console.error('AgentStorage: Error en fallback _ensureInitialData:', err);
+        }
+        resolve(this);
       };
     });
   }
@@ -464,7 +484,7 @@ export class AgentStorage {
     return settlement;
   }
 
-  async deleteSettlement(id) {
+  async deleteSettlement(id, options = {}) {
     if (this.db) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('settlements', 'readwrite');
@@ -479,6 +499,9 @@ export class AgentStorage {
       localStorage.setItem('gv_settlements', JSON.stringify(list));
     }
 
+    if (!options.skipCloudSync) {
+      this._syncCloud(sb => sb.deleteSettlement(id));
+    }
     this._notify('settlements:changed', { action: 'delete', id });
   }
 
@@ -536,6 +559,27 @@ export class AgentStorage {
     }
     this._notify('transfers:changed', { action: 'save', transfer });
     return transfer;
+  }
+
+  async deleteTransfer(id, options = {}) {
+    if (this.db) {
+      await new Promise((resolve, reject) => {
+        const tx = this.db.transaction('transfers', 'readwrite');
+        const store = tx.objectStore('transfers');
+        const req = store.delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } else {
+      let list = await this.getAllTransfers();
+      list = list.filter(t => t.id !== id);
+      localStorage.setItem('gv_transfers', JSON.stringify(list));
+    }
+
+    if (!options.skipCloudSync) {
+      this._syncCloud(sb => sb.deleteTransfer(id));
+    }
+    this._notify('transfers:changed', { action: 'delete', id });
   }
 
   // ==========================================
@@ -862,21 +906,21 @@ export class AgentStorage {
     const reservations = remoteData.reservations || [];
     const transfers = remoteData.transfers || [];
     const settlements = remoteData.settlements || [];
-    const orders = remoteData.orders || [];
+    const hasOrdersPayload = remoteData.orders !== null && remoteData.orders !== undefined;
+    const orders = hasOrdersPayload ? remoteData.orders : null;
 
     if (this.db) {
       await new Promise((resolve, reject) => {
-        const tx = this.db.transaction(
-          ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements', 'orders'],
-          'readwrite'
-        );
+        const storeNames = ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements'];
+        if (hasOrdersPayload) storeNames.push('orders');
+
+        const tx = this.db.transaction(storeNames, 'readwrite');
         const prodStore = tx.objectStore('products');
         const salesStore = tx.objectStore('sales');
         const whStore = tx.objectStore('warehouses');
         const trfStore = tx.objectStore('transfers');
         const resStore = tx.objectStore('reservations');
         const stlStore = tx.objectStore('settlements');
-        const ordStore = tx.objectStore('orders');
 
         prodStore.clear();
         salesStore.clear();
@@ -884,7 +928,6 @@ export class AgentStorage {
         trfStore.clear();
         resStore.clear();
         stlStore.clear();
-        ordStore.clear();
 
         products.forEach(p => prodStore.put(p));
         sales.forEach(s => salesStore.put(s));
@@ -892,10 +935,16 @@ export class AgentStorage {
         transfers.forEach(t => trfStore.put(t));
         reservations.forEach(r => resStore.put(r));
         settlements.forEach(st => stlStore.put(st));
-        orders.forEach(o => ordStore.put(o));
+
+        if (hasOrdersPayload) {
+          const ordStore = tx.objectStore('orders');
+          ordStore.clear();
+          orders.forEach(o => ordStore.put(o));
+        }
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
       });
     } else {
       localStorage.setItem('gv_products', JSON.stringify(products));
@@ -904,7 +953,9 @@ export class AgentStorage {
       localStorage.setItem('gv_transfers', JSON.stringify(transfers));
       localStorage.setItem('gv_reservations', JSON.stringify(reservations));
       localStorage.setItem('gv_settlements', JSON.stringify(settlements));
-      localStorage.setItem('gv_orders', JSON.stringify(orders));
+      if (hasOrdersPayload) {
+        localStorage.setItem('gv_orders', JSON.stringify(orders));
+      }
     }
 
     this._notify('warehouses:changed', { action: 'cloud_replace' });

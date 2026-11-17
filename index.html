@@ -34,7 +34,7 @@
   </script>
 
   <!-- Estilos Mobile-First y Cupertino iOS 18 Glassmorphism -->
-  <link rel="stylesheet" href="css/app.css?v=4.5">
+  <link rel="stylesheet" href="css/app.css?v=4.6">
 </head>
 <body class="bg-slate-950 text-slate-100">
 
@@ -197,7 +197,7 @@
                 value="1" 
                 min="1" 
                 class="w-16 text-center text-2xl font-black text-white bg-transparent border-0 focus:outline-none"
-                onchange="window.app.changeSaleQuantity(parseInt(this.value, 10) - window.app.saleQuantity)"
+                oninput="window.app.setSaleQuantity(this.value)"
               />
               <button 
                 type="button" 
@@ -842,6 +842,6 @@
   <!-- SDK oficial de Supabase para Realtime + PostgreSQL en la nube -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- Inicialización modular mediante ES Modules -->
-  <script type="module" src="js/app.js?v=4.5"></script>
+  <script type="module" src="js/app.js?v=4.6"></script>
 </body>
 </html>

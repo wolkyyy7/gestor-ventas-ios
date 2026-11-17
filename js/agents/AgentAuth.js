@@ -83,11 +83,25 @@ export class AgentAuth {
           let matchedWh = null;
 
           if (urlWh) {
-            matchedWh = warehouses.find(
-              w => !w.isMain && w.id === urlWh && String(w.workerPin || '').trim() === urlPin.trim()
-            );
-          }
-          if (!matchedWh) {
+            const targetWh = warehouses.find(w => w.id === urlWh);
+            if (targetWh) {
+              // Si el almacén ya existe localmente, exigimos que NO sea el principal y que el PIN coincida
+              if (!targetWh.isMain && String(targetWh.workerPin || '').trim() === urlPin.trim()) {
+                matchedWh = targetWh;
+              }
+            } else if (urlWh !== 'wh_main' && urlPin.trim().length >= 4) {
+              // Fallback solo si el enlace apunta a un almacén secundario aún no sincronizado
+              const urlWhName = params.get('name') || 'Mi Almacén';
+              this._saveSession({
+                role: 'worker',
+                warehouseId: urlWh,
+                warehouseName: urlWhName,
+                workerName: urlWhName,
+                isWorkerMode: true
+              });
+              return this.session;
+            }
+          } else {
             matchedWh = warehouses.find(
               w => !w.isMain && String(w.workerPin || '').trim() === urlPin.trim()
             );
@@ -95,19 +109,6 @@ export class AgentAuth {
 
           if (matchedWh) {
             this._saveSession(this._buildWorkerSession(matchedWh));
-            return this.session;
-          }
-
-          // Fallback si el enlace traía el wh y aún no había llegado el snapshot remoto completo
-          if (urlWh) {
-            const urlWhName = params.get('name') || 'Mi Almacén';
-            this._saveSession({
-              role: 'worker',
-              warehouseId: urlWh,
-              warehouseName: urlWhName,
-              workerName: urlWhName,
-              isWorkerMode: true
-            });
             return this.session;
           }
         }
@@ -121,16 +122,18 @@ export class AgentAuth {
       const raw = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.role === 'worker' && parsed.warehouseId) {
+        if (parsed && parsed.role === 'worker' && parsed.warehouseId && parsed.warehouseId !== 'wh_main') {
           const warehouses = await this.inventory.getWarehouses();
           const wh = warehouses.find(w => w.id === parsed.warehouseId);
           if (wh && !wh.isMain) {
             this._saveSession(this._buildWorkerSession(wh));
             return this.session;
           }
-          // Si ya no existe el almacén, mantener la sesión o volver a boss si fue eliminado
-          this._saveSession(parsed);
-          return this.session;
+          if (!wh) {
+            // Almacén pendiente de sincronizar (evitar escalar a boss si estaba en modo trabajador)
+            this._saveSession(parsed);
+            return this.session;
+          }
         }
       }
     } catch (err) {

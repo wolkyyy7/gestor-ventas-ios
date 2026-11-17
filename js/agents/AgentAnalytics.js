@@ -206,9 +206,13 @@ export class AgentAnalytics {
       }
     });
 
+    const warehouseScopedUnitsMap = new Map();
     allSales.forEach(s => {
       const qty = parseInt(s.quantity, 10) || 0;
       allTimeProductUnitsMap.set(s.productId, (allTimeProductUnitsMap.get(s.productId) || 0) + qty);
+      if (!warehouseFilter || warehouseFilter === 'all' || (s.warehouseId || MAIN_WAREHOUSE_ID) === warehouseFilter) {
+        warehouseScopedUnitsMap.set(s.productId, (warehouseScopedUnitsMap.get(s.productId) || 0) + qty);
+      }
     });
 
     const allTimeTransactionCount = rawAllSales.length;
@@ -493,7 +497,7 @@ export class AgentAnalytics {
     // =========================================================================
     const slowMovingProducts = normalizedProducts
       .map(p => {
-        const sold = allTimeProductUnitsMap.get(p.id) || 0;
+        const sold = warehouseScopedUnitsMap.get(p.id) || 0;
         const currentStock = (!warehouseFilter || warehouseFilter === 'all')
           ? (p.stock || 0)
           : (p.stockByWarehouse[warehouseFilter] || 0);
@@ -704,9 +708,11 @@ export class AgentAnalytics {
     const evalSaleDiscount = (sale) => {
       const qty = parseInt(sale.quantity, 10) || 0;
       const unitPrice = parseFloat(sale.unitPrice) || 0;
-      const catPrice = sale.catalogUnitPrice !== undefined
-        ? parseFloat(sale.catalogUnitPrice)
-        : (productPriceMap.get(sale.productId) || 12.00);
+      const parsedCat = parseFloat(sale.catalogUnitPrice);
+      const mapPrice = productPriceMap.get(sale.productId);
+      const catPrice = (sale.catalogUnitPrice !== undefined && sale.catalogUnitPrice !== null && Number.isFinite(parsedCat))
+        ? parsedCat
+        : (Number.isFinite(mapPrice) ? mapPrice : 12.00);
       const discPerUnit = Math.max(0, catPrice - unitPrice);
       const totalDisc = parseFloat((discPerUnit * qty).toFixed(2));
       const theoretical = parseFloat((catPrice * qty).toFixed(2));
@@ -778,8 +784,8 @@ export class AgentAnalytics {
         }
       });
 
-      const avgRealUnitPrice = whUnits > 0 ? parseFloat((whBilled / whUnits).toFixed(2)) : 12.00;
-      const avgCatalogUnitPrice = whUnits > 0 ? parseFloat((whTheoretical / whUnits).toFixed(2)) : 12.00;
+      const avgRealUnitPrice = whUnits > 0 ? parseFloat((whBilled / whUnits).toFixed(2)) : 0;
+      const avgCatalogUnitPrice = whUnits > 0 ? parseFloat((whTheoretical / whUnits).toFixed(2)) : 0;
       const discountedSalesPct = whSales.length > 0
         ? parseFloat(((discountedSalesCount / whSales.length) * 100).toFixed(1))
         : 0;

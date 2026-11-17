@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.sales (
   gross_total NUMERIC(10, 2) DEFAULT 0,
   total_cost NUMERIC(10, 2) DEFAULT 0,
   net_profit NUMERIC(10, 2) DEFAULT 0,
-  profit_margin NUMERIC(6, 2) DEFAULT 0,
+  profit_margin NUMERIC(12, 2) DEFAULT 0,
   discount_per_unit NUMERIC(10, 2) DEFAULT 0,
   total_discount NUMERIC(10, 2) DEFAULT 0,
   payment_method TEXT DEFAULT 'Efectivo',
