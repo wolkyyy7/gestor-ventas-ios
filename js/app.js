@@ -6,14 +6,14 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.4';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.4';
-import { AgentSales } from './agents/AgentSales.js?v=4.4';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.4';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.4';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.4';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.4';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.4';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.5';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.5';
+import { AgentSales } from './agents/AgentSales.js?v=4.5';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.5';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.5';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.5';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.5';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.5';
 
 class AppController {
   constructor() {
@@ -585,11 +585,12 @@ class AppController {
               id="salesSearchInput" 
               value="${this._escapeHtml(this.salesSearchQuery || '')}"
               placeholder="🔍 Buscar sabor o cliente con reserva..." 
-              class="w-full bg-slate-900/90 text-white placeholder-slate-400 px-4 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:border-emerald-500 text-sm"
+              autocomplete="off"
+              autocorrect="off"
+              spellcheck="false"
+              class="w-full bg-slate-900/90 text-white placeholder-slate-400 pl-4 pr-9 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:border-emerald-500 text-sm"
             />
-            ${this.salesSearchQuery ? `
-              <button id="btnClearSalesSearch" class="absolute right-3 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
-            ` : ''}
+            <button type="button" id="btnClearSalesSearch" class="${this.salesSearchQuery ? '' : 'hidden'} absolute right-3 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
           </div>
           <button 
             onclick="window.app.openSalesHistoryModal()"
@@ -606,135 +607,170 @@ class AppController {
             <strong class="text-emerald-400">${activeWhUnits} uds</strong>
             ${activeWhReserved > 0 ? `<span class="text-purple-300 ml-1">(📌 ${activeWhReserved} res.)</span>` : ''}
           </span>
-          <span class="font-medium text-emerald-400">${availableInActiveCount} sabores libres</span>
+          <span id="salesAvailableCount" class="font-medium text-emerald-400">${availableInActiveCount} sabores libres</span>
         </div>
       </div>
 
       <!-- Cuadrícula de productos listos para venta rápida -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-8">
+      <div id="salesProductGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-8">
+        ${this._buildSalesProductGridHtml(products, isWorker, hasMultipleWarehouses)}
+      </div>
     `;
 
-    if (products.length === 0) {
-      html += `
+    container.innerHTML = html;
+
+    const searchInput = document.getElementById('salesSearchInput');
+    const btnClear = document.getElementById('btnClearSalesSearch');
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        this.salesSearchQuery = e.target.value;
+        if (btnClear) {
+          btnClear.classList.toggle('hidden', !this.salesSearchQuery);
+        }
+        this._refreshSalesGridOnly();
+      });
+    }
+    if (btnClear) {
+      btnClear.addEventListener('click', () => {
+        this.salesSearchQuery = '';
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.focus();
+        }
+        btnClear.classList.add('hidden');
+        this._refreshSalesGridOnly();
+      });
+    }
+  }
+
+  _buildSalesProductGridHtml(products, isWorker, hasMultipleWarehouses) {
+    if (!products || products.length === 0) {
+      return `
         <div class="col-span-full text-center py-12 px-4 ios-card">
           <div class="text-4xl mb-2">📦</div>
           <p class="text-slate-300 font-semibold">No se encontraron sabores</p>
           <p class="text-xs text-slate-500 mt-1">Añade productos en la pestaña de Inventario o cambia el texto de búsqueda.</p>
         </div>
       `;
-    } else {
-      products.forEach((p, idx) => {
-        const whStock = p.warehouseStock || 0;
-        const availStock = p.availableStock !== undefined ? p.availableStock : whStock;
-        const whReserved = p.warehouseReserved || 0;
-        const globalStock = p.stock || 0;
-        const isOutHere = availStock <= 0 && whStock <= 0;
-        const isOnlyReservedHere = availStock <= 0 && whStock > 0;
-        const isOutEverywhere = globalStock <= 0;
-        const isLowHere = availStock > 0 && availStock <= 4;
-        const profit = (p.sellPrice - p.costPrice).toFixed(2);
-        const reservedCustomers = (p.activeReservations || [])
-          .map(r => r.customerName)
-          .filter(Boolean)
-          .join(', ');
-        const theme = this._getFlavorVisualTheme(p.name);
-        const stockBarPct = Math.min(100, Math.round((availStock / 10) * 100));
-        const animDelay = Math.min(idx * 22, 240);
+    }
 
-        html += `
-          <div 
-            style="animation-delay: ${animDelay}ms"
-            class="ios-card product-pos-card btn-pressable flex flex-col justify-between cursor-pointer transition-all border mb-0 ${
-              (isWorker ? isOutHere : isOutEverywhere)
-                ? 'opacity-45 border-rose-900/40 bg-slate-900/50 pointer-events-none'
-                : (isOutHere || isOnlyReservedHere)
-                  ? 'opacity-80 border-amber-500/35 bg-slate-900/75 hover:border-amber-400/60'
-                  : 'hover:border-emerald-500/60'
-            }"
-            onclick="window.app.openQuickSaleSheet('${p.id}')"
-          >
-            <div>
-              <div class="flex items-start justify-between gap-2 mb-2">
-                <div class="flavor-orb" style="background: ${theme.orbBg};">
-                  <span>${theme.emoji}</span>
-                </div>
-                <div class="flex flex-col items-end gap-1">
-                  <span class="badge ${
-                    availStock <= 0
-                      ? 'badge-low-stock'
-                      : isLowHere ? 'badge-low-stock' : 'badge-ok-stock'
-                  }">
-                    ${availStock <= 0 ? (whReserved > 0 ? '0 libres' : '0 aquí') : `${availStock} libres`}
+    return products.map((p, idx) => {
+      const whStock = p.warehouseStock || 0;
+      const availStock = p.availableStock !== undefined ? p.availableStock : whStock;
+      const whReserved = p.warehouseReserved || 0;
+      const globalStock = p.stock || 0;
+      const isOutHere = availStock <= 0 && whStock <= 0;
+      const isOnlyReservedHere = availStock <= 0 && whStock > 0;
+      const isOutEverywhere = globalStock <= 0;
+      const isLowHere = availStock > 0 && availStock <= 4;
+      const profit = (p.sellPrice - p.costPrice).toFixed(2);
+      const reservedCustomers = (p.activeReservations || [])
+        .map(r => r.customerName)
+        .filter(Boolean)
+        .join(', ');
+      const theme = this._getFlavorVisualTheme(p.name);
+      const stockBarPct = Math.min(100, Math.round((availStock / 10) * 100));
+      const animDelay = Math.min(idx * 22, 240);
+
+      return `
+        <div 
+          style="animation-delay: ${animDelay}ms"
+          class="ios-card product-pos-card btn-pressable flex flex-col justify-between cursor-pointer transition-all border mb-0 ${
+            (isWorker ? isOutHere : isOutEverywhere)
+              ? 'opacity-45 border-rose-900/40 bg-slate-900/50 pointer-events-none'
+              : (isOutHere || isOnlyReservedHere)
+                ? 'opacity-80 border-amber-500/35 bg-slate-900/75 hover:border-amber-400/60'
+                : 'hover:border-emerald-500/60'
+          }"
+          onclick="window.app.openQuickSaleSheet('${p.id}')"
+        >
+          <div>
+            <div class="flex items-start justify-between gap-2 mb-2">
+              <div class="flavor-orb" style="background: ${theme.orbBg};">
+                <span>${theme.emoji}</span>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <span class="badge ${
+                  availStock <= 0
+                    ? 'badge-low-stock'
+                    : isLowHere ? 'badge-low-stock' : 'badge-ok-stock'
+                }">
+                  ${availStock <= 0 ? (whReserved > 0 ? '0 libres' : '0 aquí') : `${availStock} libres`}
+                </span>
+                ${hasMultipleWarehouses ? `
+                  <span class="text-[9.5px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900/90 text-slate-300 border border-white/10 tabular-nums" title="Stock global en todos los almacenes">
+                    🌐 ${globalStock} tot.
                   </span>
-                  ${hasMultipleWarehouses ? `
-                    <span class="text-[9.5px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900/90 text-slate-300 border border-white/10 tabular-nums" title="Stock global en todos los almacenes">
-                      🌐 ${globalStock} tot.
-                    </span>
-                  ` : ''}
-                </div>
+                ` : ''}
               </div>
-
-              <h4 class="font-extrabold text-white text-[13.5px] line-clamp-2 leading-snug tracking-tight">${this._escapeHtml(p.name)}</h4>
-
-              <!-- Mini barra de nivel de stock estilo iOS -->
-              <div class="stock-mini-bar">
-                <div class="stock-mini-fill" style="width: ${stockBarPct}%; background: ${availStock <= 3 ? 'linear-gradient(90deg, #f43f5e, #fbbf24)' : theme.barBg};"></div>
-              </div>
-
-              ${whReserved > 0 ? `
-                <div 
-                  onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
-                  class="mt-2 px-2 py-0.5 rounded-lg bg-purple-950/60 border border-purple-500/40 text-[10px] text-purple-300 font-semibold truncate"
-                  title="Reservado para: ${this._escapeHtml(reservedCustomers)}"
-                >
-                  📌 ${whReserved} res.: ${this._escapeHtml(reservedCustomers || 'Cliente')}
-                </div>
-              ` : ''}
-
-              ${!isWorker && isOutHere && !isOutEverywhere ? `
-                <div class="text-[10px] text-amber-400 font-semibold mt-1">
-                  Disponible en otro almacén (${globalStock} uds)
-                </div>
-              ` : ''}
             </div>
 
-            <div class="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between gap-1.5">
-              <div>
-                <div class="text-[17px] font-black text-white leading-none tabular-nums">${p.sellPrice.toFixed(2)}€</div>
-                ${isWorker ? `<div class="text-[10px] text-slate-400 font-semibold mt-0.5">PVP</div>` : `<div class="text-[10px] text-emerald-400 font-extrabold mt-0.5 tabular-nums">+${profit}€ benef.</div>`}
+            <h4 class="font-extrabold text-white text-[13.5px] line-clamp-2 leading-snug tracking-tight">${this._escapeHtml(p.name)}</h4>
+
+            <!-- Mini barra de nivel de stock estilo iOS -->
+            <div class="stock-mini-bar">
+              <div class="stock-mini-fill" style="width: ${stockBarPct}%; background: ${availStock <= 3 ? 'linear-gradient(90deg, #f43f5e, #fbbf24)' : theme.barBg};"></div>
+            </div>
+
+            ${whReserved > 0 ? `
+              <div 
+                onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
+                class="mt-2 px-2 py-0.5 rounded-lg bg-purple-950/60 border border-purple-500/40 text-[10px] text-purple-300 font-semibold truncate"
+                title="Reservado para: ${this._escapeHtml(reservedCustomers)}"
+              >
+                📌 ${whReserved} res.: ${this._escapeHtml(reservedCustomers || 'Cliente')}
               </div>
-              <div class="flex items-center gap-1">
-                <button 
-                  type="button"
-                  onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
-                  class="btn-pressable px-2 py-1.5 rounded-xl bg-slate-900/90 hover:bg-purple-950/50 text-purple-300 border border-purple-500/35 text-[10px] font-bold flex items-center gap-1"
-                  title="Reservar este sabor a un cliente"
-                >
-                  <span>📌</span> Res.
-                </button>
+            ` : ''}
+
+            ${!isWorker && isOutHere && !isOutEverywhere ? `
+              <div class="text-[10px] text-amber-400 font-semibold mt-1">
+                Disponible en otro almacén (${globalStock} uds)
               </div>
+            ` : ''}
+          </div>
+
+          <div class="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between gap-1.5">
+            <div>
+              <div class="text-[17px] font-black text-white leading-none tabular-nums">${p.sellPrice.toFixed(2)}€</div>
+              ${isWorker ? `<div class="text-[10px] text-slate-400 font-semibold mt-0.5">PVP</div>` : `<div class="text-[10px] text-emerald-400 font-extrabold mt-0.5 tabular-nums">+${profit}€ benef.</div>`}
+            </div>
+            <div class="flex items-center gap-1">
+              <button 
+                type="button"
+                onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
+                class="btn-pressable px-2 py-1.5 rounded-xl bg-slate-900/90 hover:bg-purple-950/50 text-purple-300 border border-purple-500/35 text-[10px] font-bold flex items-center gap-1"
+                title="Reservar este sabor a un cliente"
+              >
+                <span>📌</span> Res.
+              </button>
             </div>
           </div>
-        `;
-      });
-    }
+        </div>
+      `;
+    }).join('');
+  }
 
-    html += `</div>`;
-    container.innerHTML = html;
+  async _refreshSalesGridOnly() {
+    const grid = document.getElementById('salesProductGrid');
+    if (!grid) return;
 
-    const searchInput = document.getElementById('salesSearchInput');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        this.salesSearchQuery = e.target.value;
-        this.renderSalesView();
-      });
-    }
-    const btnClear = document.getElementById('btnClearSalesSearch');
-    if (btnClear) {
-      btnClear.addEventListener('click', () => {
-        this.salesSearchQuery = '';
-        this.renderSalesView();
-      });
+    const isWorker = this.authAgent.isWorker();
+    const [warehouses, products] = await Promise.all([
+      this.inventoryAgent.getWarehouses(),
+      this.inventoryAgent.getProducts({
+        query: this.salesSearchQuery,
+        warehouseId: this.activeSaleWarehouseId
+      })
+    ]);
+
+    const hasMultipleWarehouses = !isWorker && warehouses.length > 1;
+    const availableInActiveCount = products.filter(p => p.availableStock > 0).length;
+
+    grid.innerHTML = this._buildSalesProductGridHtml(products, isWorker, hasMultipleWarehouses);
+    const countEl = document.getElementById('salesAvailableCount');
+    if (countEl) {
+      countEl.textContent = `${availableInActiveCount} sabores libres`;
     }
   }
 
@@ -1424,10 +1460,25 @@ class AppController {
     container.innerHTML = subViewBar + stockHtml;
 
     const inputSearch = document.getElementById('inventorySearchInput');
+    const btnClearInv = document.getElementById('btnClearInventorySearch');
     if (inputSearch) {
       inputSearch.addEventListener('input', (e) => {
         this.inventorySearchQuery = e.target.value;
-        this.renderInventoryView();
+        if (btnClearInv) {
+          btnClearInv.classList.toggle('hidden', !this.inventorySearchQuery);
+        }
+        this._refreshInventoryGridOnly();
+      });
+    }
+    if (btnClearInv) {
+      btnClearInv.addEventListener('click', () => {
+        this.inventorySearchQuery = '';
+        if (inputSearch) {
+          inputSearch.value = '';
+          inputSearch.focus();
+        }
+        btnClearInv.classList.add('hidden');
+        this._refreshInventoryGridOnly();
       });
     }
   }
@@ -1700,8 +1751,12 @@ class AppController {
             id="inventorySearchInput" 
             value="${this._escapeHtml(this.inventorySearchQuery || '')}"
             placeholder="🔍 Filtrar sabores o categorías..." 
-            class="w-full bg-slate-900/90 text-white placeholder-slate-400 px-3.5 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:border-emerald-500 text-sm"
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck="false"
+            class="w-full bg-slate-900/90 text-white placeholder-slate-400 pl-3.5 pr-9 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:border-emerald-500 text-sm"
           />
+          <button type="button" id="btnClearInventorySearch" class="${this.inventorySearchQuery ? '' : 'hidden'} absolute right-3 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
         </div>
         ${isWorker ? '' : `
           <button 
@@ -1714,11 +1769,17 @@ class AppController {
       </div>
 
       <!-- Lista de productos con desglose por almacenes -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pb-8">
+      <div id="inventoryProductGrid" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pb-8">
+        ${this._buildInventoryProductGridHtml(products, warehouses, isWorker)}
+      </div>
     `;
 
-    if (products.length === 0) {
-      html += `
+    return html;
+  }
+
+  _buildInventoryProductGridHtml(products, warehouses, isWorker) {
+    if (!products || products.length === 0) {
+      return `
         <div class="col-span-full ios-card text-center py-10 px-4">
           <div class="text-4xl mb-2">🏷️</div>
           <p class="text-slate-300 font-semibold">No hay productos en esta selección</p>
@@ -1729,133 +1790,150 @@ class AppController {
           `}
         </div>
       `;
-    } else {
-      const targetAdjustWh = this.selectedInventoryWarehouse === 'all'
-        ? MAIN_WAREHOUSE_ID
-        : this.selectedInventoryWarehouse;
-      const targetAdjustWhObj = warehouses.find(w => w.id === targetAdjustWh) || warehouses[0];
-      const targetAdjustWhLabel = targetAdjustWhObj
-        ? (targetAdjustWhObj.isMain ? 'Principal' : targetAdjustWhObj.name)
-        : 'Principal';
-
-      products.forEach((p, idx) => {
-        const displayStock = this.selectedInventoryWarehouse === 'all' ? p.stock : p.warehouseStock;
-        const adjustWhStock = p.stockByWarehouse?.[targetAdjustWh] || 0;
-        const isLow = displayStock <= 4;
-        const profitMargin = p.sellPrice > 0 ? (((p.sellPrice - p.costPrice) / p.sellPrice) * 100).toFixed(0) : 0;
-        const theme = this._getFlavorVisualTheme(p.name);
-        const animDelay = Math.min(idx * 20, 220);
-
-        // Chips de desglose por almacén (solo visibles para el Jefe)
-        const warehouseChipsHtml = isWorker ? '' : warehouses.map(wh => {
-          const count = p.stockByWarehouse?.[wh.id] || 0;
-          const isCurrentWh = this.selectedInventoryWarehouse === wh.id;
-          return `
-            <span 
-              onclick="event.stopPropagation(); window.app.setInventoryWarehouse('${wh.id}')"
-              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold border cursor-pointer tabular-nums ${
-                isCurrentWh
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                  : count > 0
-                    ? 'bg-slate-800/90 text-slate-200 border-slate-700'
-                    : 'bg-slate-900/60 text-slate-500 border-slate-800'
-              }"
-            >
-              <span>${wh.icon || '🏠'}</span>
-              <span>${this._escapeHtml(wh.isMain ? 'Mi Almacén' : wh.name)}:</span>
-              <strong class="${count > 0 ? 'text-white' : 'text-slate-500'}">${count}</strong>
-            </span>
-          `;
-        }).join('');
-
-        html += `
-          <div style="animation-delay: ${animDelay}ms" class="ios-card flex items-stretch justify-between gap-3 p-3.5 mb-0">
-            <!-- Info básica, orbe de sabor, precios y chips de stock por almacén -->
-            <div class="flex-1 min-w-0 ${isWorker ? '' : 'cursor-pointer'}" ${isWorker ? '' : `onclick="window.app.openProductModal('${p.id}')"`}>
-              <div class="flex items-start gap-2.5">
-                <div class="flavor-orb" style="background: ${theme.orbBg}; width: 38px; height: 38px; font-size: 18px;">
-                  <span>${theme.emoji}</span>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
-                    <span class="text-[9.5px] uppercase font-bold tracking-wider text-slate-400 px-1.5 py-0.5 rounded bg-slate-900/90 border border-white/10">
-                      ${this._escapeHtml(p.category || 'Sabores')}
-                    </span>
-                    ${isLow ? `<span class="text-[10px] text-rose-400 font-bold">⚠️ ${displayStock === 0 ? 'Agotado' : 'Stock bajo'}</span>` : ''}
-                    ${(isWorker ? p.warehouseReserved : p.totalReserved) > 0 ? `<span class="badge badge-reserved text-[9.5px]">📌 ${isWorker ? p.warehouseReserved : p.totalReserved} res.</span>` : ''}
-                  </div>
-                  <h4 class="font-extrabold text-white text-sm leading-snug">${this._escapeHtml(p.name)}</h4>
-                </div>
-              </div>
-
-              <div class="flex flex-wrap items-center gap-3 text-xs mt-2 text-slate-400 tabular-nums">
-                ${isWorker ? '' : `<span>Coste: <strong class="text-slate-200">${p.costPrice.toFixed(2)}€</strong></span>`}
-                <span>PVP: <strong class="text-white">${p.sellPrice.toFixed(2)}€</strong></span>
-                ${isWorker ? '' : `<span class="text-emerald-400 text-[11px] font-bold">+${(p.sellPrice - p.costPrice).toFixed(2)}€ (${profitMargin}%)</span>`}
-              </div>
-
-              ${isWorker ? '' : `
-                <!-- Desglose exacto por almacenes -->
-                <div class="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-white/10">
-                  ${warehouseChipsHtml}
-                </div>
-              `}
-            </div>
-
-            <!-- Controles rápidos de Stock +/- (Jefe) o Solo Lectura + Reservar (Trabajador) -->
-            <div class="flex flex-col items-center justify-between bg-slate-900/80 p-2 rounded-xl border border-slate-700/60 min-w-[92px]">
-              <div class="text-[9px] text-slate-400 uppercase font-bold truncate max-w-[88px]" title="Stock en ${this._escapeHtml(targetAdjustWhLabel)}">
-                ${targetAdjustWhObj?.icon || '🏠'} ${this._escapeHtml(targetAdjustWhLabel)}
-              </div>
-
-              ${isWorker ? `
-                <div class="my-1.5 text-center">
-                  <div class="text-xl font-black ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-400' : 'text-white'}">
-                    ${adjustWhStock}
-                  </div>
-                  <div class="text-[9px] text-slate-400">uds físicas</div>
-                </div>
-                <button 
-                  type="button"
-                  onclick="window.app.openReservationModal('${p.id}', '${targetAdjustWh}')"
-                  class="btn-pressable w-full py-1 px-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-bold flex items-center justify-center gap-1"
-                >
-                  <span>📌</span> Reservar
-                </button>
-              ` : `
-                <div class="flex items-center gap-2 my-1">
-                  <button 
-                    type="button"
-                    onclick="window.app.adjustStockInline('${p.id}', -1, '${targetAdjustWh}')"
-                    class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-slate-200 font-bold flex items-center justify-center hover:bg-slate-700 border border-slate-600/40 text-sm"
-                    ${adjustWhStock <= 0 ? 'disabled style="opacity:0.3"' : ''}
-                  >-</button>
-                  <span class="text-base font-black ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-400' : 'text-white'} min-w-[22px] text-center">
-                    ${adjustWhStock}
-                  </span>
-                  <button 
-                    type="button"
-                    onclick="window.app.adjustStockInline('${p.id}', 1, '${targetAdjustWh}')"
-                    class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-slate-200 font-bold flex items-center justify-center hover:bg-slate-700 border border-slate-600/40 text-sm"
-                  >+</button>
-                </div>
-
-                <button 
-                  type="button"
-                  onclick="window.app.openTransferModal('${p.id}', '${targetAdjustWh}')"
-                  class="btn-pressable w-full py-1 px-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold flex items-center justify-center gap-1"
-                >
-                  <span>🚚</span> Repartir
-                </button>
-              `}
-            </div>
-          </div>
-        `;
-      });
     }
 
-    html += `</div>`;
-    return html;
+    const targetAdjustWh = this.selectedInventoryWarehouse === 'all'
+      ? MAIN_WAREHOUSE_ID
+      : this.selectedInventoryWarehouse;
+    const targetAdjustWhObj = warehouses.find(w => w.id === targetAdjustWh) || warehouses[0];
+    const targetAdjustWhLabel = targetAdjustWhObj
+      ? (targetAdjustWhObj.isMain ? 'Principal' : targetAdjustWhObj.name)
+      : 'Principal';
+
+    return products.map((p, idx) => {
+      const displayStock = this.selectedInventoryWarehouse === 'all' ? p.stock : p.warehouseStock;
+      const adjustWhStock = p.stockByWarehouse?.[targetAdjustWh] || 0;
+      const isLow = displayStock <= 4;
+      const profitMargin = p.sellPrice > 0 ? (((p.sellPrice - p.costPrice) / p.sellPrice) * 100).toFixed(0) : 0;
+      const theme = this._getFlavorVisualTheme(p.name);
+      const animDelay = Math.min(idx * 20, 220);
+
+      // Chips de desglose por almacén (solo visibles para el Jefe)
+      const warehouseChipsHtml = isWorker ? '' : warehouses.map(wh => {
+        const count = p.stockByWarehouse?.[wh.id] || 0;
+        const isCurrentWh = this.selectedInventoryWarehouse === wh.id;
+        return `
+          <span 
+            onclick="event.stopPropagation(); window.app.setInventoryWarehouse('${wh.id}')"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold border cursor-pointer tabular-nums ${
+              isCurrentWh
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                : count > 0
+                  ? 'bg-slate-800/90 text-slate-200 border-slate-700'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
+            }"
+          >
+            <span>${wh.icon || '🏠'}</span>
+            <span>${this._escapeHtml(wh.isMain ? 'Mi Almacén' : wh.name)}:</span>
+            <strong class="${count > 0 ? 'text-white' : 'text-slate-500'}">${count}</strong>
+          </span>
+        `;
+      }).join('');
+
+      return `
+        <div style="animation-delay: ${animDelay}ms" class="ios-card flex items-stretch justify-between gap-3 p-3.5 mb-0">
+          <!-- Info básica, orbe de sabor, precios y chips de stock por almacén -->
+          <div class="flex-1 min-w-0 ${isWorker ? '' : 'cursor-pointer'}" ${isWorker ? '' : `onclick="window.app.openProductModal('${p.id}')"`}>
+            <div class="flex items-start gap-2.5">
+              <div class="flavor-orb" style="background: ${theme.orbBg}; width: 38px; height: 38px; font-size: 18px;">
+                <span>${theme.emoji}</span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
+                  <span class="text-[9.5px] uppercase font-bold tracking-wider text-slate-400 px-1.5 py-0.5 rounded bg-slate-900/90 border border-white/10">
+                    ${this._escapeHtml(p.category || 'Sabores')}
+                  </span>
+                  ${isLow ? `<span class="text-[10px] text-rose-400 font-bold">⚠️ ${displayStock === 0 ? 'Agotado' : 'Stock bajo'}</span>` : ''}
+                  ${(isWorker ? p.warehouseReserved : p.totalReserved) > 0 ? `<span class="badge badge-reserved text-[9.5px]">📌 ${isWorker ? p.warehouseReserved : p.totalReserved} res.</span>` : ''}
+                </div>
+                <h4 class="font-extrabold text-white text-sm leading-snug">${this._escapeHtml(p.name)}</h4>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3 text-xs mt-2 text-slate-400 tabular-nums">
+              ${isWorker ? '' : `<span>Coste: <strong class="text-slate-200">${p.costPrice.toFixed(2)}€</strong></span>`}
+              <span>PVP: <strong class="text-white">${p.sellPrice.toFixed(2)}€</strong></span>
+              ${isWorker ? '' : `<span class="text-emerald-400 text-[11px] font-bold">+${(p.sellPrice - p.costPrice).toFixed(2)}€ (${profitMargin}%)</span>`}
+            </div>
+
+            ${isWorker ? '' : `
+              <!-- Desglose exacto por almacenes -->
+              <div class="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-white/10">
+                ${warehouseChipsHtml}
+              </div>
+            `}
+          </div>
+
+          <!-- Controles rápidos de Stock +/- (Jefe) o Solo Lectura + Reservar (Trabajador) -->
+          <div class="flex flex-col items-center justify-between bg-slate-900/80 p-2 rounded-xl border border-slate-700/60 min-w-[92px]">
+            <div class="text-[9px] text-slate-400 uppercase font-bold truncate max-w-[88px]" title="Stock en ${this._escapeHtml(targetAdjustWhLabel)}">
+              ${targetAdjustWhObj?.icon || '🏠'} ${this._escapeHtml(targetAdjustWhLabel)}
+            </div>
+
+            ${isWorker ? `
+              <div class="my-1.5 text-center">
+                <div class="text-xl font-black ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-400' : 'text-white'}">
+                  ${adjustWhStock}
+                </div>
+                <div class="text-[9px] text-slate-400">uds físicas</div>
+              </div>
+              <button 
+                type="button"
+                onclick="window.app.openReservationModal('${p.id}', '${targetAdjustWh}')"
+                class="btn-pressable w-full py-1 px-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-bold flex items-center justify-center gap-1"
+              >
+                <span>📌</span> Reservar
+              </button>
+            ` : `
+              <div class="flex items-center gap-2 my-1">
+                <button 
+                  type="button"
+                  onclick="window.app.adjustStockInline('${p.id}', -1, '${targetAdjustWh}')"
+                  class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-slate-200 font-bold flex items-center justify-center hover:bg-slate-700 border border-slate-600/40 text-sm"
+                  ${adjustWhStock <= 0 ? 'disabled style="opacity:0.3"' : ''}
+                >-</button>
+                <span class="text-base font-black ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-400' : 'text-white'} min-w-[22px] text-center">
+                  ${adjustWhStock}
+                </span>
+                <button 
+                  type="button"
+                  onclick="window.app.adjustStockInline('${p.id}', 1, '${targetAdjustWh}')"
+                  class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-slate-200 font-bold flex items-center justify-center hover:bg-slate-700 border border-slate-600/40 text-sm"
+                >+</button>
+              </div>
+
+              <button 
+                type="button"
+                onclick="window.app.openTransferModal('${p.id}', '${targetAdjustWh}')"
+                class="btn-pressable w-full py-1 px-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold flex items-center justify-center gap-1"
+              >
+                <span>🚚</span> Repartir
+              </button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async _refreshInventoryGridOnly() {
+    const grid = document.getElementById('inventoryProductGrid');
+    if (!grid) return;
+
+    const isWorker = this.authAgent.isWorker();
+    const assignedWh = this.authAgent.getAssignedWarehouseId();
+    const targetWh = isWorker && assignedWh ? assignedWh : this.selectedInventoryWarehouse;
+
+    const [warehouses, products] = await Promise.all([
+      this.inventoryAgent.getWarehouses(),
+      this.inventoryAgent.getProducts({
+        query: this.inventorySearchQuery,
+        category: this.selectedCategoryFilter,
+        warehouseId: targetWh
+      })
+    ]);
+
+    grid.innerHTML = this._buildInventoryProductGridHtml(products, warehouses, isWorker);
   }
 
   setInventoryWarehouse(warehouseId) {
@@ -6603,9 +6681,9 @@ class AppController {
   setupServiceWorker() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=4.4')
+        navigator.serviceWorker.register('./sw.js?v=4.5')
           .then(reg => {
-            console.log('Service Worker v4.4 registrado correctamente');
+            console.log('Service Worker v4.5 registrado correctamente');
             reg.update();
           })
           .catch(err => console.log('Registro SW opcional omitido:', err));
