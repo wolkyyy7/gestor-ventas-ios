@@ -76,11 +76,13 @@ export class AgentSales {
     }
     const targetWh = warehouseId || MAIN_WAREHOUSE_ID;
 
-    // 2. Obtener producto, almacén y pedido activo
-    const [product, warehouse, activeOrder] = await Promise.all([
+    // 2. Obtener producto, almacén, pedido activo y asignar pedido por orden FIFO si quedan unidades de un pedido previo
+    const [product, warehouse, activeOrder, allOrders, allSales] = await Promise.all([
       this.inventory.getProduct(productId),
       this.inventory.getWarehouse(targetWh),
-      this.storage.getActiveOrder()
+      this.storage.getActiveOrder(),
+      this.storage.getAllOrders(),
+      this.storage.getAllSales()
     ]);
 
     if (!product) {
@@ -100,9 +102,43 @@ export class AgentSales {
       );
     }
 
+    // Selección FIFO del pedido: si quedan unidades sin vender del pedido anterior para este sabor,
+    // la facturación y el beneficio siguen asignándose al pedido anterior hasta agotarlo.
+    let targetOrder = activeOrder;
+    let batchCostPrice = null;
+    const sortedOrdersAsc = [...(allOrders || [])].sort(
+      (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
+    );
+    for (const ord of sortedOrdersAsc) {
+      if (activeOrder && ord.id === activeOrder.id) continue;
+      const ordItem = Array.isArray(ord.items) ? ord.items.find(it => it.productId === productId) : null;
+      if (!ordItem) continue;
+      if (ordItem.carryoverOnlyNonMain && targetWh === MAIN_WAREHOUSE_ID) continue;
+
+      const cap = (ordItem.carryoverLimit !== undefined && ordItem.carryoverLimit !== null)
+        ? Number(ordItem.carryoverLimit)
+        : 0;
+      if (cap <= 0) continue;
+
+      const soldInOrd = (allSales || []).reduce(
+        (sum, s) => sum + (s.orderId === ord.id && s.productId === productId ? (parseInt(s.quantity, 10) || 0) : 0),
+        0
+      );
+      if (soldInOrd < cap) {
+        targetOrder = ord;
+        const itemCp = parseFloat(ordItem.costPrice);
+        if (Number.isFinite(itemCp) && itemCp >= 0) {
+          batchCostPrice = itemCp;
+        }
+        break;
+      }
+    }
+
     // 3. Cálculos financieros y de descuentos atómicos
-    const costPrice = parseFloat(product.costPrice) || 0;
-    const catalogUnitPrice = parseFloat(product.sellPrice) || 12.00;
+    const parsedProdCost = parseFloat(product.costPrice);
+    const costPrice = batchCostPrice !== null ? batchCostPrice : (Number.isFinite(parsedProdCost) ? parsedProdCost : 0);
+    const parsedCatSell = parseFloat(product.sellPrice);
+    const catalogUnitPrice = (Number.isFinite(parsedCatSell) && parsedCatSell >= 0) ? parsedCatSell : 12.00;
     const discountPerUnit = Math.max(0, parseFloat((catalogUnitPrice - unitPrice).toFixed(2)));
     const totalDiscount = Math.max(0, parseFloat(((catalogUnitPrice - unitPrice) * qty).toFixed(2)));
 
@@ -142,8 +178,8 @@ export class AgentSales {
       buyerName: cleanBuyerName,
       notes: (notes || '').trim(),
       reservationId: reservationId || null,
-      orderId: activeOrder ? activeOrder.id : null,
-      orderName: activeOrder ? activeOrder.name : '',
+      orderId: targetOrder ? targetOrder.id : null,
+      orderName: targetOrder ? targetOrder.name : '',
       status: 'completed'
     };
 

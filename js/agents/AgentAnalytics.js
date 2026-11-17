@@ -290,6 +290,7 @@ export class AgentAnalytics {
       let whAllTimeBilled = 0;
       let whAllTimeProfit = 0;
       let whAllTimeUnitsSold = 0;
+      let whAllTimePaidUnitsSold = 0;
       let totalCollectedPaid = 0;
       let collectedCash = 0;
       let collectedCard = 0;
@@ -297,13 +298,16 @@ export class AgentAnalytics {
 
       whAllTimeSales.forEach(s => {
         const gross = parseFloat(s.grossTotal) || 0;
+        const qty = parseInt(s.quantity, 10) || 0;
         whAllTimeBilled += gross;
         whAllTimeProfit += parseFloat(s.netProfit) || 0;
-        whAllTimeUnitsSold += parseInt(s.quantity, 10) || 0;
+        whAllTimeUnitsSold += qty;
 
         if (s.paymentStatus === 'pending') {
           totalPendingFiados += gross;
         } else {
+          // Las ventas fiadas solo cuentan para comisión de vapers gratis al cobrarlas
+          whAllTimePaidUnitsSold += qty;
           totalCollectedPaid += gross;
           if (s.paymentMethod === 'Efectivo') collectedCash += gross;
           else collectedCard += gross;
@@ -313,10 +317,10 @@ export class AgentAnalytics {
       const whAllTimeTransactions = whAllTimeSales.length;
       const allTimeRevenueShare = allTimeBilled > 0 ? parseFloat(((whAllTimeBilled / allTimeBilled) * 100).toFixed(1)) : 0;
 
-      // Cálculos de Comisión de Vapers Gratis (ej. 1 vaper gratis cada 5 vendidos)
-      const earnedFreeVapers = Math.floor(whAllTimeUnitsSold / rewardEveryNUnits) * rewardFreeUnits;
+      // Cálculos de Comisión de Vapers Gratis (solo unidades ya cobradas)
+      const earnedFreeVapers = Math.floor(whAllTimePaidUnitsSold / rewardEveryNUnits) * rewardFreeUnits;
       const pendingFreeVapers = Math.max(0, earnedFreeVapers - deliveredFreeVapers);
-      const unitsTowardNextFreeVaper = whAllTimeUnitsSold % rewardEveryNUnits;
+      const unitsTowardNextFreeVaper = whAllTimePaidUnitsSold % rewardEveryNUnits;
       const unitsNeededForNextFreeVaper = rewardEveryNUnits - unitsTowardNextFreeVaper;
       const nextFreeVaperProgressPct = parseFloat(((unitsTowardNextFreeVaper / rewardEveryNUnits) * 100).toFixed(1));
 
@@ -1480,7 +1484,8 @@ export class AgentAnalytics {
     if (timeframe === 'today') {
       startDate.setHours(0, 0, 0, 0);
     } else if (timeframe === 'week') {
-      startDate.setDate(now.getDate() - 7);
+      // Exactamente 7 días incluyendo hoy (hoy + 6 días anteriores), alineado con daily7Days
+      startDate.setDate(now.getDate() - 6);
       startDate.setHours(0, 0, 0, 0);
     } else if (timeframe === 'month') {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);

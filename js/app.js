@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.6';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.6';
-import { AgentSales } from './agents/AgentSales.js?v=4.6';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.6';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.6';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.6';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.6';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.6';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.7';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.7';
+import { AgentSales } from './agents/AgentSales.js?v=4.7';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.7';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.7';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.7';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.7';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.7';
 
-const APP_VERSION = 'v4.6';
+const APP_VERSION = 'v4.7';
 
 class AppController {
   constructor() {
@@ -93,12 +93,12 @@ class AppController {
     this.storageAgent.attachSupabaseAgent(this.supabaseAgent);
     await this.notificationsAgent.init();
 
-    // Si Supabase está configurado, sincronizar primero desde PostgreSQL + activar Realtime
+    // Si Supabase está configurado, es la única fuente de sincronización de datos (ntfy queda solo para push iPhone).
     if (this.supabaseAgent.isConfigured()) {
       await this.supabaseAgent.init((evt) => this.handleRemoteSyncEvent(evt));
+    } else {
+      await this.cloudSyncAgent.init((evt) => this.handleRemoteSyncEvent(evt));
     }
-
-    await this.cloudSyncAgent.init((evt) => this.handleRemoteSyncEvent(evt));
     await this.authAgent.init();
 
     // Si inicia en Modo Trabajador, fijar filtros a su almacén asignado
@@ -130,8 +130,8 @@ class AppController {
     await this.renderCurrentTab();
     await this.updateHeaderQuickStats();
 
-    // Si es el jefe y hay enlace cloud activo, publicar snapshot inicial silenciosamente
-    if (this.authAgent.isBoss()) {
+    // Si es el jefe y no usa Supabase, publicar snapshot inicial en ntfy silenciosamente
+    if (this.authAgent.isBoss() && !this.supabaseAgent.isConfigured()) {
       this.scheduleCloudSnapshotPublish();
     }
   }
@@ -159,9 +159,10 @@ class AppController {
   }
 
   scheduleCloudSnapshotPublish() {
+    if (this.supabaseAgent.isConfigured()) return;
     clearTimeout(this._cloudPublishTimer);
     this._cloudPublishTimer = setTimeout(() => {
-      if (this.authAgent.isBoss()) {
+      if (this.authAgent.isBoss() && !this.supabaseAgent.isConfigured()) {
         this.cloudSyncAgent.publishFullState().catch(() => {});
       }
     }, 800);
@@ -1118,7 +1119,7 @@ class AppController {
       let workerProgressText = '';
       if (warehouse && !warehouse.isMain) {
         const whUnitsSold = allSales
-          .filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === targetWhId)
+          .filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === targetWhId && s.paymentStatus !== 'pending')
           .reduce((sum, s) => sum + (parseInt(s.quantity, 10) || 0), 0);
         const everyN = Math.max(1, parseInt(warehouse.rewardEveryNUnits, 10) || 5);
         const freeU = Math.max(1, parseInt(warehouse.rewardFreeUnits, 10) || 1);
@@ -1140,8 +1141,10 @@ class AppController {
         isWorkerSession
       }).catch(() => {});
 
-      // Sincronizar evento en vivo a través de la nube
-      this.cloudSyncAgent.publishWorkerSale(sale, updatedProduct).catch(() => {});
+      // Si Supabase no está activo, usar fallback de eventos por ntfy
+      if (!this.supabaseAgent.isConfigured()) {
+        this.cloudSyncAgent.publishWorkerSale(sale, updatedProduct).catch(() => {});
+      }
     } catch (err) {
       console.warn('Error en _notifyAndSyncSale:', err);
     }
@@ -1165,6 +1168,24 @@ class AppController {
     const targetWh = isWorker
       ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
       : (this.saleWarehouseId || this.activeSaleWarehouseId || MAIN_WAREHOUSE_ID);
+
+    // Avisar si la venta directa va a consumir unidades reservadas para clientes
+    if (!this.pendingReservationIdForSale) {
+      const freshProducts = await this.inventoryAgent.getProducts({ warehouseId: targetWh });
+      const freshProd = freshProducts.find(p => p.id === this.selectedProductForSale.id);
+      if (freshProd) {
+        const reserved = freshProd.reservedInWarehouse || 0;
+        const free = freshProd.availableStock || 0;
+        const physical = freshProd.warehouseStock || 0;
+        const requestedQty = parseInt(this.saleQuantity, 10) || 1;
+        if (reserved > 0 && requestedQty > free && requestedQty <= physical) {
+          const ok = confirm(
+            `⚠️ AVISO DE RESERVA\n\n"${freshProd.name}" tiene ${reserved} ud(s) reservadas en este almacén (quedan ${free} libres de ${physical} físicas).\nAl vender ${requestedQty} ud(s) estarás tocando unidades reservadas para un cliente.\n\n¿Deseas continuar con la venta igualmente?`
+          );
+          if (!ok) return;
+        }
+      }
+    }
 
     try {
       const result = await this.salesAgent.executeSale({
@@ -2668,6 +2689,23 @@ class AppController {
     if (items.length === 0) return;
 
     try {
+      // Avisar si algún producto del reparto consume unidades reservadas en el almacén de origen
+      const originProducts = await this.inventoryAgent.getProducts({ warehouseId: this.batchTransferFromWh });
+      const originMap = new Map(originProducts.map(p => [p.id, p]));
+      const affectedReserved = [];
+      for (const it of items) {
+        const p = originMap.get(it.productId);
+        if (p && p.reservedInWarehouse > 0 && it.quantity > p.availableStock) {
+          affectedReserved.push(`• ${p.name}: envías ${it.quantity} (libres: ${p.availableStock}, reservadas: ${p.reservedInWarehouse})`);
+        }
+      }
+      if (affectedReserved.length > 0) {
+        const proceed = confirm(
+          `⚠️ AVISO DE UNIDADES RESERVADAS\n\nVas a mover unidades reservadas del almacén de origen:\n${affectedReserved.join('\n')}\n\n¿Continuar con el reparto igualmente?`
+        );
+        if (!proceed) return;
+      }
+
       const res = await this.inventoryAgent.batchTransferStock({
         fromWarehouseId: this.batchTransferFromWh,
         toWarehouseId: this.batchTransferToWh,
@@ -2937,7 +2975,9 @@ class AppController {
       if (res.reservation) {
         const wh = await this.inventoryAgent.getWarehouse(warehouseId);
         this.notificationsAgent.notifyReservation({ reservation: res.reservation, warehouse: wh }).catch(() => {});
-        this.cloudSyncAgent.publishReservationEvent('add', res.reservation).catch(() => {});
+        if (!this.supabaseAgent.isConfigured()) {
+          this.cloudSyncAgent.publishReservationEvent('add', res.reservation).catch(() => {});
+        }
       }
 
       await this.renderCurrentTab();
@@ -2960,7 +3000,9 @@ class AppController {
       }
 
       if (res.sale) {
-        this.cloudSyncAgent.publishReservationEvent('complete', { id: reservationId }).catch(() => {});
+        if (!this.supabaseAgent.isConfigured()) {
+          this.cloudSyncAgent.publishReservationEvent('complete', { id: reservationId }).catch(() => {});
+        }
         this._notifyAndSyncSale(res.sale);
       }
 
@@ -2977,7 +3019,9 @@ class AppController {
       const res = await this.inventoryAgent.cancelReservation(reservationId);
       this._playChime('revert');
       this.showToast(res.message, '📌');
-      this.cloudSyncAgent.publishReservationEvent('cancel', { id: reservationId }).catch(() => {});
+      if (!this.supabaseAgent.isConfigured()) {
+        this.cloudSyncAgent.publishReservationEvent('cancel', { id: reservationId }).catch(() => {});
+      }
       if (refreshModal) {
         await this.openReservationModal();
       }
@@ -3094,6 +3138,15 @@ class AppController {
     const notes = document.getElementById('transferModalNotes')?.value || '';
 
     try {
+      const originProducts = await this.inventoryAgent.getProducts({ warehouseId: fromWarehouseId });
+      const prod = originProducts.find(p => p.id === productId);
+      if (prod && prod.reservedInWarehouse > 0 && quantity > prod.availableStock) {
+        const proceed = confirm(
+          `⚠️ AVISO DE RESERVA\n\n"${prod.name}" tiene ${prod.reservedInWarehouse} ud(s) reservadas en origen (quedan ${prod.availableStock} libres de ${prod.warehouseStock} físicas).\nSi transfieres ${quantity} ud(s) moverás stock reservado.\n\n¿Continuar con el reparto igualmente?`
+        );
+        if (!proceed) return;
+      }
+
       const res = await this.inventoryAgent.transferStock({
         productId,
         fromWarehouseId,
@@ -6168,12 +6221,12 @@ class AppController {
     const body = document.getElementById('workerInviteModalBody');
     if (!modal || !body) return;
 
-    // Publicar estado actual en la nube antes de invitar al trabajador para que al abrir el enlace cargue todo el stock
-    this.cloudSyncAgent.publishFullState().catch(() => {});
+    if (!this.supabaseAgent.isConfigured()) {
+      this.cloudSyncAgent.publishFullState().catch(() => {});
+    }
 
     const topic = this.notificationsAgent.getSettings().topic;
-    const sbCfgRaw = this.supabaseAgent.isConfigured() ? this.supabaseAgent.getConfig() : null;
-    const sbCfg = (sbCfgRaw && sbCfgRaw.url !== 'https://fnuakxqdtsjmynghqmgl.supabase.co') ? sbCfgRaw : null;
+    const sbCfg = this.supabaseAgent.isConfigured() ? this.supabaseAgent.getConfig() : null;
     const invite = this.authAgent.buildWorkerInviteData(wh, topic, sbCfg);
     this._lastWorkerInviteData = invite;
 
@@ -6294,7 +6347,11 @@ class AppController {
       codeEl.textContent = saved.topic;
     }
 
-    this.cloudSyncAgent.restartLiveStream();
+    if (this.supabaseAgent.isConfigured()) {
+      this.cloudSyncAgent._closeLiveStream();
+    } else {
+      this.cloudSyncAgent.restartLiveStream();
+    }
     this.applyRoleUI();
 
     if (showSuccessToast) {
@@ -6321,6 +6378,10 @@ class AppController {
 
   async syncFullStateToCloud() {
     this.saveNtfySettingsFromView(false);
+    if (this.supabaseAgent.isConfigured()) {
+      await this.pushLocalToSupabaseNow();
+      return;
+    }
     const res = await this.cloudSyncAgent.publishFullState();
     if (res && res.published) {
       this._playChime('success');
@@ -6360,6 +6421,11 @@ class AppController {
         anonKey,
         onRemoteEvent: (evt) => this.handleRemoteSyncEvent(evt)
       });
+      if (this.supabaseAgent.isConfigured()) {
+        this.cloudSyncAgent._closeLiveStream();
+      } else {
+        await this.cloudSyncAgent.init((evt) => this.handleRemoteSyncEvent(evt));
+      }
       if (res && res.connected) {
         this._playChime('success');
         this.showToast('¡Conectado a Supabase PostgreSQL en vivo!', '🗄️');
@@ -6445,7 +6511,7 @@ class AppController {
           this.newOrderDraft = null;
           this.batchTransferQuantities = {};
           if (this.supabaseAgent.isConfigured()) {
-            await this.supabaseAgent.pushAllLocalToCloud().catch(() => {});
+            await this.supabaseAgent.replaceCloudWithLocal();
           }
           this.scheduleCloudSnapshotPublish();
           this._playChime('success');
@@ -6463,17 +6529,25 @@ class AppController {
   }
 
   async resetDemoData() {
-    if (!confirm('¿Reiniciar el catálogo a los 10 sabores oficiales con 10 unidades cada uno en el Almacén Principal? (Se borrarán las ventas actuales)')) {
+    if (!confirm('¿Reiniciar el catálogo a los 10 sabores oficiales con 10 unidades cada uno en el Almacén Principal? (Se borrarán las ventas, pedidos y reservas actuales tanto en local como en Supabase)')) {
       return;
     }
-    await this.storageAgent.setNewProductCatalog();
-    this.lastCompletedSale = null;
-    this.analyticsOrderFilter = 'all';
-    this.batchTransferQuantities = {};
-    this.newOrderDraft = null;
-    this._playChime('success');
-    this.showToast('¡10 Sabores cargados en Mi Almacén Principal!', '✓');
-    await this.switchTab('sales');
+    try {
+      await this.storageAgent.setNewProductCatalog();
+      this.lastCompletedSale = null;
+      this.analyticsOrderFilter = 'all';
+      this.batchTransferQuantities = {};
+      this.newOrderDraft = null;
+      if (this.supabaseAgent.isConfigured()) {
+        await this.supabaseAgent.replaceCloudWithLocal();
+      }
+      this._playChime('success');
+      this.showToast('¡10 Sabores cargados en local y nube!', '✓');
+      await this.switchTab('sales');
+      await this.updateHeaderQuickStats();
+    } catch (err) {
+      alert(`Catálogo reiniciado en local, pero hubo un error sincronizando borrados en Supabase: ${err.message}`);
+    }
   }
 
   // =========================================================================
@@ -6766,7 +6840,7 @@ class AppController {
             }"
           >
             <div class="text-xs font-bold">🧹 Recuento desde 0</div>
-            <div class="text-[10px] opacity-80 mt-0.5">Termina el pedido anterior y deja solo lo nuevo que cuentes</div>
+            <div class="text-[10px] opacity-80 mt-0.5">Pone a 0 tu Almacén Principal (trabajadores y reservas se mantienen)</div>
           </button>
 
           <button

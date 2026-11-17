@@ -1308,10 +1308,34 @@ export class AgentStorage {
       updatedAt: now
     }));
 
+    const totalUnits = newProducts.reduce((s, p) => s + (parseInt(p.stock, 10) || 0), 0);
+    const totalCost = newProducts.reduce((s, p) => s + (parseInt(p.stock, 10) || 0) * (parseFloat(p.costPrice) || 0), 0);
+    const expectedRevenue = newProducts.reduce((s, p) => s + (parseInt(p.stock, 10) || 0) * (parseFloat(p.sellPrice) || 12), 0);
+    const initialOrder = {
+      id: 'order_1_initial',
+      name: 'Pedido #1 (Inicial)',
+      status: 'active',
+      supplier: 'Proveedor Principal',
+      notes: 'Catálogo inicial reiniciado',
+      items: newProducts.map(p => ({
+        productId: p.id,
+        productName: p.name,
+        quantity: p.stock,
+        costPrice: p.costPrice,
+        sellPrice: p.sellPrice
+      })),
+      totalUnits,
+      totalCost: parseFloat(totalCost.toFixed(2)),
+      expectedRevenue: parseFloat(expectedRevenue.toFixed(2)),
+      createdAt: now,
+      closedAt: null,
+      updatedAt: now
+    };
+
     if (this.db) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
-          ['products', 'sales', 'transfers', 'reservations', 'settlements'],
+          ['products', 'sales', 'transfers', 'reservations', 'settlements', 'orders'],
           'readwrite'
         );
         tx.objectStore('products').clear();
@@ -1319,11 +1343,14 @@ export class AgentStorage {
         tx.objectStore('transfers').clear();
         tx.objectStore('reservations').clear();
         tx.objectStore('settlements').clear();
+        tx.objectStore('orders').clear();
 
         const prodStore = tx.objectStore('products');
         newProducts.forEach(p => prodStore.put(p));
+        tx.objectStore('orders').put(initialOrder);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
       });
     } else {
       localStorage.setItem('gv_products', JSON.stringify(newProducts));
@@ -1331,6 +1358,7 @@ export class AgentStorage {
       localStorage.setItem('gv_transfers', JSON.stringify([]));
       localStorage.setItem('gv_reservations', JSON.stringify([]));
       localStorage.setItem('gv_settlements', JSON.stringify([]));
+      localStorage.setItem('gv_orders', JSON.stringify([initialOrder]));
     }
 
     this._notify('products:changed', { action: 'reset' });
@@ -1338,6 +1366,7 @@ export class AgentStorage {
     this._notify('transfers:changed', { action: 'reset' });
     this._notify('reservations:changed', { action: 'reset' });
     this._notify('settlements:changed', { action: 'reset' });
+    this._notify('orders:changed', { action: 'reset' });
   }
 
   /**

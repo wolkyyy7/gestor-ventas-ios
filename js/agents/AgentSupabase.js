@@ -461,8 +461,22 @@ export class AgentSupabase {
     }
   }
 
+  async _fetchAllPaged(baseQuery, pageSize = 1000) {
+    const allRows = [];
+    let offset = 0;
+    const sep = baseQuery.includes('?') ? '&' : '?';
+    while (true) {
+      const page = await this._restRequest(`${baseQuery}${sep}limit=${pageSize}&offset=${offset}`);
+      if (!Array.isArray(page) || page.length === 0) break;
+      allRows.push(...page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+    return allRows;
+  }
+
   /**
-   * Descarga el estado autoritativo de todas las tablas de Supabase.
+   * Descarga el estado autoritativo completo (paginado, sin límite) de todas las tablas de Supabase.
    * Si la base de datos en Supabase está vacía (primer arranque), sube el catálogo inicial local.
    */
   async syncFromCloud() {
@@ -470,14 +484,14 @@ export class AgentSupabase {
 
     let ordersFetchOk = true;
     const [whRows, prodRows, saleRows, resRows, trfRows, stlRows, cfgRows, ordRows] = await Promise.all([
-      this._restRequest('warehouses?select=*'),
-      this._restRequest('products?select=*'),
-      this._restRequest('sales?select=*&order=timestamp.desc&limit=500'),
-      this._restRequest('reservations?select=*'),
-      this._restRequest('transfers?select=*&order=timestamp.desc&limit=200'),
-      this._restRequest('settlements?select=*&order=timestamp.desc&limit=200'),
+      this._fetchAllPaged('warehouses?select=*&order=created_at.asc'),
+      this._fetchAllPaged('products?select=*&order=created_at.asc'),
+      this._fetchAllPaged('sales?select=*&order=timestamp.desc'),
+      this._fetchAllPaged('reservations?select=*&order=created_at.desc'),
+      this._fetchAllPaged('transfers?select=*&order=timestamp.desc'),
+      this._fetchAllPaged('settlements?select=*&order=timestamp.desc'),
       this._restRequest('app_config?select=*'),
-      this._restRequest('orders?select=*&order=created_at.desc').catch((err) => {
+      this._fetchAllPaged('orders?select=*&order=created_at.desc').catch((err) => {
         ordersFetchOk = false;
         console.warn('AgentSupabase: No se pudo descargar tabla orders:', err?.message || err);
         return null;
@@ -494,6 +508,21 @@ export class AgentSupabase {
       return { synced: true, action: 'pushed_initial' };
     }
 
+    // Si Supabase ya tenía datos pero su tabla `orders` aún estaba vacía, conservar y subir los pedidos locales
+    let resolvedOrders = null;
+    if (ordersFetchOk && Array.isArray(ordRows)) {
+      if (ordRows.length > 0) {
+        resolvedOrders = ordRows.map(r => this._fromDbOrder(r)).filter(Boolean);
+      } else if (this.storage) {
+        const localOrders = await this.storage.getAllOrders();
+        if (localOrders && localOrders.length > 0) {
+          for (const o of localOrders) {
+            await this.upsertOrder(o);
+          }
+        }
+      }
+    }
+
     const remoteData = {
       warehouses: (whRows || []).map(r => this._fromDbWarehouse(r)).filter(Boolean),
       products: (prodRows || []).map(r => this._fromDbProduct(r)).filter(Boolean),
@@ -501,9 +530,7 @@ export class AgentSupabase {
       reservations: (resRows || []).map(r => this._fromDbReservation(r)).filter(Boolean),
       transfers: (trfRows || []).map(r => this._fromDbTransfer(r)).filter(Boolean),
       settlements: (stlRows || []).map(r => this._fromDbSettlement(r)).filter(Boolean),
-      orders: ordersFetchOk && Array.isArray(ordRows)
-        ? ordRows.map(r => this._fromDbOrder(r)).filter(Boolean)
-        : null
+      orders: resolvedOrders
     };
 
     if (this.storage && typeof this.storage.replaceAllFromCloud === 'function') {
@@ -616,6 +643,27 @@ export class AgentSupabase {
     this.lastSyncAt = new Date().toISOString();
     this.isConnected = true;
     return { pushed: true };
+  }
+
+  /**
+   * Reemplaza por completo las filas en Supabase con el estado local actual
+   * (usado en reinicio de catálogo o restauración de copia de seguridad para propagar borrados).
+   */
+  async replaceCloudWithLocal() {
+    if (!this.isConfigured() || !this.storage) return { replaced: false };
+
+    const tablesToClear = ['sales', 'transfers', 'reservations', 'settlements', 'orders', 'products', 'warehouses'];
+    for (const table of tablesToClear) {
+      await this._restRequest(`${table}?id=not.is.null`, { method: 'DELETE' }).catch((err) => {
+        if (table !== 'orders') {
+          throw err;
+        }
+        console.warn('AgentSupabase: No se pudo limpiar tabla orders en reset:', err?.message || err);
+      });
+    }
+
+    await this.pushAllLocalToCloud();
+    return { replaced: true };
   }
 
   // ===========================================================================

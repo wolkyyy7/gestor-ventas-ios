@@ -1149,18 +1149,79 @@ export class AgentInventory {
 
     const nowIso = new Date().toISOString();
 
-    // 1. Cerrar pedidos activos anteriores
-    const allOrders = await this.storage.getAllOrders();
-    for (const oldOrder of allOrders) {
+    // 1. Calcular el stock remanente real de pedidos anteriores antes de aplicar el recuento
+    const [allOrders, allProducts, allSales] = await Promise.all([
+      this.storage.getAllOrders(),
+      this.storage.getAllProducts(),
+      this.storage.getAllSales()
+    ]);
+
+    const keptOldStockByProduct = new Map();
+    for (const prod of allProducts) {
+      this._normalizeProductStock(prod);
+      let keptUnits = 0;
+      if (resetExistingStock) {
+        // Solo ponemos a 0 el Almacén Principal; el stock en trabajadores se conserva
+        Object.entries(prod.stockByWarehouse || {}).forEach(([whId, qty]) => {
+          if (whId !== MAIN_WAREHOUSE_ID) {
+            keptUnits += Math.max(0, parseInt(qty, 10) || 0);
+          }
+        });
+      } else {
+        keptUnits = Math.max(0, parseInt(prod.stock, 10) || 0);
+      }
+      keptOldStockByProduct.set(prod.id, keptUnits);
+    }
+
+    // Fijar límite de arrastre (FIFO) en los pedidos antiguos y cerrar los activos
+    const sortedOldOrdersAsc = [...allOrders].sort(
+      (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
+    );
+    const salesByOrderAndProduct = new Map();
+    for (const s of allSales) {
+      if (!s.orderId || !s.productId) continue;
+      const key = `${s.orderId}::${s.productId}`;
+      salesByOrderAndProduct.set(key, (salesByOrderAndProduct.get(key) || 0) + (parseInt(s.quantity, 10) || 0));
+    }
+    const remainingKeptPool = new Map(keptOldStockByProduct);
+
+    for (const oldOrder of sortedOldOrdersAsc) {
+      let changed = false;
+      if (Array.isArray(oldOrder.items)) {
+        for (const item of oldOrder.items) {
+          const pid = item.productId;
+          if (!pid) continue;
+          const soldAlready = salesByOrderAndProduct.get(`${oldOrder.id}::${pid}`) || 0;
+          const origCap = (item.carryoverLimit !== undefined && item.carryoverLimit !== null)
+            ? Number(item.carryoverLimit)
+            : (parseInt(item.quantity, 10) || 0);
+          const unfilled = Math.max(0, origCap - soldAlready);
+          const poolAvail = remainingKeptPool.get(pid) || 0;
+          const keptForThisOrder = Math.min(unfilled, poolAvail);
+          remainingKeptPool.set(pid, poolAvail - keptForThisOrder);
+
+          const nextLimit = soldAlready + keptForThisOrder;
+          if (item.carryoverLimit !== nextLimit) {
+            item.carryoverLimit = nextLimit;
+            changed = true;
+          }
+          if (resetExistingStock && !item.carryoverOnlyNonMain) {
+            item.carryoverOnlyNonMain = true;
+            changed = true;
+          }
+        }
+      }
       if (oldOrder.status === 'active') {
         oldOrder.status = 'closed';
         oldOrder.closedAt = oldOrder.closedAt || nowIso;
+        changed = true;
+      }
+      if (changed) {
         await this.storage.saveOrder(oldOrder);
       }
     }
 
-    // 2. Si el usuario eligió empezar recuento limpio, poner a 0 el stock anterior de todos los productos
-    const allProducts = await this.storage.getAllProducts();
+    // 2. Actualizar stock del Almacén Principal (las reservas y trabajadores se conservan intactos)
     const existingQtyMap = new Map(validExisting.map(it => [it.productId, it]));
 
     for (const prod of allProducts) {
@@ -1168,10 +1229,8 @@ export class AgentInventory {
       const incoming = existingQtyMap.get(prod.id);
 
       if (resetExistingStock) {
-        // Poner todos los almacenes de este producto a 0 y asignar lo nuevo al Principal
-        Object.keys(prod.stockByWarehouse).forEach(whId => {
-          prod.stockByWarehouse[whId] = 0;
-        });
+        // Solo poner a 0 el Almacén Principal; los trabajadores conservan su stock
+        prod.stockByWarehouse[MAIN_WAREHOUSE_ID] = 0;
         if (incoming) {
           const qty = Math.max(0, parseInt(incoming.quantity, 10) || 0);
           prod.stockByWarehouse[MAIN_WAREHOUSE_ID] = qty;
@@ -1206,20 +1265,24 @@ export class AgentInventory {
       const p = await this.storage.getProductById(it.productId);
       if (p) {
         const qty = parseInt(it.quantity, 10) || 0;
+        const cp = parseFloat(p.costPrice);
+        const sp = parseFloat(p.sellPrice);
         orderItems.push({
           productId: p.id,
           productName: p.name,
           quantity: qty,
-          costPrice: parseFloat(p.costPrice) || 0,
-          sellPrice: parseFloat(p.sellPrice) || 12.00
+          costPrice: Number.isFinite(cp) ? cp : 0,
+          sellPrice: Number.isFinite(sp) ? sp : 12.00
         });
       }
     }
 
     for (const newIt of validNew) {
       const qty = Math.max(1, parseInt(newIt.quantity, 10) || 1);
-      const costPrice = parseFloat(newIt.costPrice) || 6.70;
-      const sellPrice = parseFloat(newIt.sellPrice) || 12.00;
+      const parsedCp = parseFloat(newIt.costPrice);
+      const parsedSp = parseFloat(newIt.sellPrice);
+      const costPrice = Number.isFinite(parsedCp) ? parsedCp : 6.70;
+      const sellPrice = Number.isFinite(parsedSp) ? parsedSp : 12.00;
       const createdProd = await this.addProduct({
         name: newIt.name.trim(),
         category: (newIt.category || 'Sabores').trim(),
@@ -1236,15 +1299,7 @@ export class AgentInventory {
       });
     }
 
-    // 4. Si resetExistingStock es true, también limpiamos las reservas activas viejas si el producto quedó a 0
-    if (resetExistingStock) {
-      const reservations = await this.storage.getAllReservations();
-      for (const res of reservations) {
-        if (res.status === 'active') {
-          await this.storage.deleteReservation(res.id);
-        }
-      }
-    }
+    // 4. Las reservas activas de clientes permanecen intactas y activas
 
     const totalUnits = orderItems.reduce((sum, it) => sum + (it.quantity || 0), 0);
     const totalCost = parseFloat(
