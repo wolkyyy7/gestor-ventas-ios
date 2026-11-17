@@ -9,8 +9,8 @@
  * - Mantener la app funcional offline usando IndexedDB como caché local inmediata
  */
 
-import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js';
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js';
+import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=4.9';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=4.9';
 
 const SUPABASE_CONFIG_KEY = 'gv_supabase_config';
 
@@ -484,14 +484,14 @@ export class AgentSupabase {
 
     let ordersFetchOk = true;
     const [whRows, prodRows, saleRows, resRows, trfRows, stlRows, cfgRows, ordRows] = await Promise.all([
-      this._fetchAllPaged('warehouses?select=*&order=created_at.asc'),
-      this._fetchAllPaged('products?select=*&order=created_at.asc'),
-      this._fetchAllPaged('sales?select=*&order=timestamp.desc'),
-      this._fetchAllPaged('reservations?select=*&order=created_at.desc'),
-      this._fetchAllPaged('transfers?select=*&order=timestamp.desc'),
-      this._fetchAllPaged('settlements?select=*&order=timestamp.desc'),
+      this._fetchAllPaged('warehouses?select=*&order=created_at.asc,id.asc'),
+      this._fetchAllPaged('products?select=*&order=created_at.asc,id.asc'),
+      this._fetchAllPaged('sales?select=*&order=timestamp.desc,id.asc'),
+      this._fetchAllPaged('reservations?select=*&order=created_at.desc,id.asc'),
+      this._fetchAllPaged('transfers?select=*&order=timestamp.desc,id.asc'),
+      this._fetchAllPaged('settlements?select=*&order=timestamp.desc,id.asc'),
       this._restRequest('app_config?select=*'),
-      this._fetchAllPaged('orders?select=*&order=created_at.desc').catch((err) => {
+      this._fetchAllPaged('orders?select=*&order=created_at.desc,id.asc').catch((err) => {
         ordersFetchOk = false;
         console.warn('AgentSupabase: No se pudo descargar tabla orders:', err?.message || err);
         return null;
@@ -652,18 +652,23 @@ export class AgentSupabase {
   async replaceCloudWithLocal() {
     if (!this.isConfigured() || !this.storage) return { replaced: false };
 
-    const tablesToClear = ['sales', 'transfers', 'reservations', 'settlements', 'orders', 'products', 'warehouses'];
-    for (const table of tablesToClear) {
-      await this._restRequest(`${table}?id=not.is.null`, { method: 'DELETE' }).catch((err) => {
-        if (table !== 'orders') {
-          throw err;
-        }
-        console.warn('AgentSupabase: No se pudo limpiar tabla orders en reset:', err?.message || err);
-      });
-    }
+    this._bulkSyncInProgress = true;
+    try {
+      const tablesToClear = ['sales', 'transfers', 'reservations', 'settlements', 'orders', 'products', 'warehouses'];
+      for (const table of tablesToClear) {
+        await this._restRequest(`${table}?id=not.is.null`, { method: 'DELETE' }).catch((err) => {
+          if (table !== 'orders') {
+            throw err;
+          }
+          console.warn('AgentSupabase: No se pudo limpiar tabla orders en reset:', err?.message || err);
+        });
+      }
 
-    await this.pushAllLocalToCloud();
-    return { replaced: true };
+      await this.pushAllLocalToCloud();
+      return { replaced: true };
+    } finally {
+      this._bulkSyncInProgress = false;
+    }
   }
 
   // ===========================================================================
@@ -716,7 +721,8 @@ export class AgentSupabase {
         body: this._toDbSale(s)
       });
     } catch (err) {
-      if (String(err.message || '').includes('order_id')) {
+      const msg = String(err.message || '');
+      if (msg.includes('order_id') || msg.includes('order_name')) {
         const row = this._toDbSale(s);
         delete row.order_id;
         delete row.order_name;
@@ -883,8 +889,21 @@ export class AgentSupabase {
     this.isConnected = false;
   }
 
+  async reconnectAndSync() {
+    if (!this.isConfigured()) return;
+    if (!this.isConnected) {
+      await this.disconnectRealtime();
+      this.startRealtime();
+    }
+    try {
+      await this.syncFromCloud();
+    } catch (err) {
+      this.lastError = err?.message || String(err);
+    }
+  }
+
   async _handleRealtimeChange(table, payload) {
-    if (!payload || !this.storage) return;
+    if (!payload || !this.storage || this._bulkSyncInProgress) return;
     const eventType = payload.eventType;
     const isDelete = eventType === 'DELETE';
     // En Supabase Realtime v2, payload.new es {} (truthy) en eventos DELETE

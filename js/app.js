@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.8';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.8';
-import { AgentSales } from './agents/AgentSales.js?v=4.8';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.8';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.8';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.8';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.8';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.8';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.9';
+import { AgentInventory } from './agents/AgentInventory.js?v=4.9';
+import { AgentSales } from './agents/AgentSales.js?v=4.9';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.9';
+import { AgentAuth } from './agents/AgentAuth.js?v=4.9';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=4.9';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.9';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=4.9';
 
-const APP_VERSION = 'v4.8';
+const APP_VERSION = 'v4.9';
 
 class AppController {
   constructor() {
@@ -130,6 +130,11 @@ class AppController {
     await this.renderCurrentTab();
     await this.updateHeaderQuickStats();
 
+    if (this.authAgent.urlAuthError) {
+      this.showToast(this.authAgent.urlAuthError, '⚠️');
+      setTimeout(() => this.openPinAuthModal(), 250);
+    }
+
     // Si es el jefe y no usa Supabase, publicar snapshot inicial en ntfy silenciosamente
     if (this.authAgent.isBoss() && !this.supabaseAgent.isConfigured()) {
       this.scheduleCloudSnapshotPublish();
@@ -229,6 +234,17 @@ class AppController {
   // ==========================================
   // UTILIDADES Y FEEDBACK AUDITIVO / HÁPTICO
   // ==========================================
+  async _runLocked(key, fn) {
+    if (!this._inFlightOps) this._inFlightOps = new Set();
+    if (this._inFlightOps.has(key)) return;
+    this._inFlightOps.add(key);
+    try {
+      return await fn();
+    } finally {
+      this._inFlightOps.delete(key);
+    }
+  }
+
   _escapeHtml(str) {
     if (str === null || str === undefined) return '';
     return String(str)
@@ -393,6 +409,19 @@ class AppController {
         if (modal) modal.classList.remove('active');
       });
     });
+
+    const handleResumeSync = () => {
+      if (!this.supabaseAgent.isConfigured()) return;
+      const now = Date.now();
+      if (this._lastResumeSyncAt && now - this._lastResumeSyncAt < 5000) return;
+      this._lastResumeSyncAt = now;
+      this.supabaseAgent.reconnectAndSync().catch(() => {});
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) handleResumeSync();
+    });
+    window.addEventListener('online', handleResumeSync);
   }
 
   switchTab(tabName) {
@@ -1151,151 +1180,159 @@ class AppController {
   }
 
   async confirmExecuteSale() {
-    if (!this.selectedProductForSale) return;
+    return this._runLocked('executeSale', async () => {
+      if (!this.selectedProductForSale) return;
 
-    const buyerInput = document.getElementById('modalSaleBuyerInput');
-    const notesInput = document.getElementById('modalSaleNotesInput');
-    const buyerName = buyerInput ? buyerInput.value.trim() : '';
-    const notes = notesInput ? notesInput.value.trim() : '';
+      const buyerInput = document.getElementById('modalSaleBuyerInput');
+      const notesInput = document.getElementById('modalSaleNotesInput');
+      const buyerName = buyerInput ? buyerInput.value.trim() : '';
+      const notes = notesInput ? notesInput.value.trim() : '';
 
-    if (this.salePaymentStatus === 'pending' && !buyerName) {
-      alert('Para registrar una venta como "Fiado / Pendiente de cobro", escribe el nombre del cliente en el campo "👤 Cliente / Deudor".');
-      if (buyerInput) buyerInput.focus();
-      return;
-    }
+      if (this.salePaymentStatus === 'pending' && !buyerName) {
+        alert('Para registrar una venta como "Fiado / Pendiente de cobro", escribe el nombre del cliente en el campo "👤 Cliente / Deudor".');
+        if (buyerInput) buyerInput.focus();
+        return;
+      }
 
-    const isWorker = this.authAgent.isWorker();
-    const targetWh = isWorker
-      ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
-      : (this.saleWarehouseId || this.activeSaleWarehouseId || MAIN_WAREHOUSE_ID);
+      const isWorker = this.authAgent.isWorker();
+      const targetWh = isWorker
+        ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
+        : (this.saleWarehouseId || this.activeSaleWarehouseId || MAIN_WAREHOUSE_ID);
 
-    // Avisar si la venta directa va a consumir unidades reservadas para clientes
-    if (!this.pendingReservationIdForSale) {
-      const freshProducts = await this.inventoryAgent.getProducts({ warehouseId: targetWh });
-      const freshProd = freshProducts.find(p => p.id === this.selectedProductForSale.id);
-      if (freshProd) {
-        const reserved = freshProd.reservedInWarehouse || 0;
-        const free = freshProd.availableStock || 0;
-        const physical = freshProd.warehouseStock || 0;
-        const requestedQty = parseInt(this.saleQuantity, 10) || 1;
-        if (reserved > 0 && requestedQty > free && requestedQty <= physical) {
-          const ok = confirm(
-            `⚠️ AVISO DE RESERVA\n\n"${freshProd.name}" tiene ${reserved} ud(s) reservadas en este almacén (quedan ${free} libres de ${physical} físicas).\nAl vender ${requestedQty} ud(s) estarás tocando unidades reservadas para un cliente.\n\n¿Deseas continuar con la venta igualmente?`
-          );
-          if (!ok) return;
+      // Avisar si la venta directa va a consumir unidades reservadas para clientes
+      if (!this.pendingReservationIdForSale) {
+        const freshProducts = await this.inventoryAgent.getProducts({ warehouseId: targetWh });
+        const freshProd = freshProducts.find(p => p.id === this.selectedProductForSale.id);
+        if (freshProd) {
+          const reserved = freshProd.warehouseReserved || 0;
+          const free = freshProd.availableStock || 0;
+          const physical = freshProd.warehouseStock || 0;
+          const requestedQty = parseInt(this.saleQuantity, 10) || 1;
+          if (reserved > 0 && requestedQty > free && requestedQty <= physical) {
+            const ok = confirm(
+              `⚠️ AVISO DE RESERVA\n\n"${freshProd.name}" tiene ${reserved} ud(s) reservadas en este almacén (quedan ${free} libres de ${physical} físicas).\nAl vender ${requestedQty} ud(s) estarás tocando unidades reservadas para un cliente.\n\n¿Deseas continuar con la venta igualmente?`
+            );
+            if (!ok) return;
+          }
         }
       }
-    }
 
-    try {
-      const result = await this.salesAgent.executeSale({
-        productId: this.selectedProductForSale.id,
-        quantity: this.saleQuantity,
-        finalUnitPrice: this.saleUnitPrice,
-        paymentMethod: this.salePaymentMethod,
-        paymentStatus: this.salePaymentStatus,
-        warehouseId: targetWh,
-        buyerName,
-        notes
-      });
+      try {
+        const result = await this.salesAgent.executeSale({
+          productId: this.selectedProductForSale.id,
+          quantity: this.saleQuantity,
+          finalUnitPrice: this.saleUnitPrice,
+          paymentMethod: this.salePaymentMethod,
+          paymentStatus: this.salePaymentStatus,
+          warehouseId: targetWh,
+          buyerName,
+          notes
+        });
 
-      this.lastCompletedSale = result.sale;
-      this.activeSaleWarehouseId = result.sale.warehouseId;
+        this.lastCompletedSale = result.sale;
+        this.activeSaleWarehouseId = result.sale.warehouseId;
 
-      const modal = document.getElementById('saleCheckoutModal');
-      if (modal) modal.classList.remove('active');
+        const modal = document.getElementById('saleCheckoutModal');
+        if (modal) modal.classList.remove('active');
 
-      this._playChime('success');
-      const toastMsg = isWorker
-        ? `Venta registrada: ${result.sale.grossTotal.toFixed(2)}€ (${result.remainingStock} uds restantes)`
-        : result.message;
-      this.showToast(toastMsg, this.salePaymentStatus === 'pending' ? '⏳' : '💰');
+        this._playChime('success');
+        const toastMsg = isWorker
+          ? `Venta registrada: ${result.sale.grossTotal.toFixed(2)}€ (${result.remainingStock} uds restantes)`
+          : result.message;
+        this.showToast(toastMsg, this.salePaymentStatus === 'pending' ? '⏳' : '💰');
 
-      // Disparar notificación push ntfy y sincronización en vivo
-      this._notifyAndSyncSale(result.sale);
+        // Disparar notificación push ntfy y sincronización en vivo
+        this._notifyAndSyncSale(result.sale);
 
-      await this.renderSalesView();
-      await this.updateHeaderQuickStats();
-    } catch (err) {
-      alert(`Error en la venta: ${err.message}`);
-    }
+        await this.renderSalesView();
+        await this.updateHeaderQuickStats();
+      } catch (err) {
+        alert(`Error en la venta: ${err.message}`);
+      }
+    });
   }
 
   async saveSaleModalAsReservation() {
-    if (!this.selectedProductForSale) return;
+    return this._runLocked('saveSaleModalAsReservation', async () => {
+      if (!this.selectedProductForSale) return;
 
-    const buyerInput = document.getElementById('modalSaleBuyerInput');
-    const notesInput = document.getElementById('modalSaleNotesInput');
-    let customerName = buyerInput ? buyerInput.value.trim() : '';
-    const notes = notesInput ? notesInput.value.trim() : '';
+      const buyerInput = document.getElementById('modalSaleBuyerInput');
+      const notesInput = document.getElementById('modalSaleNotesInput');
+      const customerName = buyerInput ? buyerInput.value.trim() : '';
+      const notes = notesInput ? notesInput.value.trim() : '';
 
-    if (!customerName) {
-      customerName = prompt('¿A nombre de qué cliente quieres reservar estas unidades?') || '';
-      customerName = customerName.trim();
-    }
-    if (!customerName) return;
-
-    const isWorker = this.authAgent.isWorker();
-    const targetWh = isWorker
-      ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
-      : (this.saleWarehouseId || this.activeSaleWarehouseId || MAIN_WAREHOUSE_ID);
-
-    try {
-      const res = await this.inventoryAgent.addReservation({
-        productId: this.selectedProductForSale.id,
-        warehouseId: targetWh,
-        quantity: this.saleQuantity,
-        customerName,
-        agreedUnitPrice: this.saleUnitPrice,
-        notes
-      });
-
-      document.getElementById('saleCheckoutModal')?.classList.remove('active');
-      this._playChime('success');
-      this.showToast(res.message, '📌');
-
-      if (res.reservation) {
-        const wh = await this.inventoryAgent.getWarehouse(targetWh);
-        this.notificationsAgent.notifyReservation({ reservation: res.reservation, warehouse: wh }).catch(() => {});
-        this.cloudSyncAgent.publishReservationEvent('add', res.reservation).catch(() => {});
+      if (!customerName) {
+        this.showToast('Escribe primero el nombre del cliente arriba para reservar', '📌');
+        if (buyerInput) buyerInput.focus();
+        return;
       }
 
-      await this.renderCurrentTab();
-    } catch (err) {
-      alert(`No se pudo crear la reserva: ${err.message}`);
-    }
+      const isWorker = this.authAgent.isWorker();
+      const targetWh = isWorker
+        ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
+        : (this.saleWarehouseId || this.activeSaleWarehouseId || MAIN_WAREHOUSE_ID);
+
+      try {
+        const res = await this.inventoryAgent.addReservation({
+          productId: this.selectedProductForSale.id,
+          warehouseId: targetWh,
+          quantity: this.saleQuantity,
+          customerName,
+          agreedUnitPrice: this.saleUnitPrice,
+          notes
+        });
+
+        document.getElementById('saleCheckoutModal')?.classList.remove('active');
+        this._playChime('success');
+        this.showToast(res.message, '📌');
+
+        if (res.reservation) {
+          const wh = await this.inventoryAgent.getWarehouse(targetWh);
+          this.notificationsAgent.notifyReservation({ reservation: res.reservation, warehouse: wh }).catch(() => {});
+          if (!this.supabaseAgent.isConfigured()) {
+            this.cloudSyncAgent.publishReservationEvent('add', res.reservation).catch(() => {});
+          }
+        }
+
+        await this.renderCurrentTab();
+      } catch (err) {
+        alert(`No se pudo crear la reserva: ${err.message}`);
+      }
+    });
   }
 
   async undoAndRepeatSale(saleId) {
-    try {
-      const res = await this.salesAgent.revertSale(saleId);
-      this._playChime('revert');
-      this.showToast(res.message, '↩️');
+    return this._runLocked(`undoRepeat_${saleId}`, async () => {
+      try {
+        const res = await this.salesAgent.revertSale(saleId);
+        this._playChime('revert');
+        this.showToast(res.message, '↩️');
 
-      const reverted = res.revertedSale;
-      this.lastCompletedSale = null;
-      this.scheduleCloudSnapshotPublish();
-      await this.renderSalesView();
-      await this.updateHeaderQuickStats();
-
-      if (reverted) {
-        await this.openQuickSaleSheet(reverted.productId, {
-          quantity: reverted.quantity,
-          finalUnitPrice: reverted.unitPrice,
-          paymentMethod: reverted.paymentMethod,
-          paymentStatus: reverted.paymentStatus || 'paid',
-          warehouseId: reverted.warehouseId,
-          buyerName: reverted.buyerName,
-          notes: reverted.notes
-        });
-      }
-    } catch (err) {
-      if (this.lastCompletedSale && this.lastCompletedSale.id === saleId) {
+        const reverted = res.revertedSale;
         this.lastCompletedSale = null;
+        this.scheduleCloudSnapshotPublish();
         await this.renderSalesView();
+        await this.updateHeaderQuickStats();
+
+        if (reverted) {
+          await this.openQuickSaleSheet(reverted.productId, {
+            quantity: reverted.quantity,
+            finalUnitPrice: reverted.unitPrice,
+            paymentMethod: reverted.paymentMethod,
+            paymentStatus: reverted.paymentStatus || 'paid',
+            warehouseId: reverted.warehouseId,
+            buyerName: reverted.buyerName,
+            notes: reverted.notes
+          });
+        }
+      } catch (err) {
+        if (this.lastCompletedSale && this.lastCompletedSale.id === saleId) {
+          this.lastCompletedSale = null;
+          await this.renderSalesView();
+        }
+        alert(`Error al cancelar la venta: ${err.message}`);
       }
-      alert(`Error al cancelar la venta: ${err.message}`);
-    }
+    });
   }
 
   async openSalesHistoryModal(silent = false) {
@@ -1403,7 +1440,7 @@ class AppController {
       this.showToast(res.message, '✅');
       this.scheduleCloudSnapshotPublish();
       if (refreshHistoryModal) {
-        await this.openSalesHistoryModal();
+        await this.openSalesHistoryModal(true);
       }
       await this.renderCurrentTab();
       await this.updateHeaderQuickStats();
@@ -1472,7 +1509,7 @@ class AppController {
     if (toWhId) this.batchTransferToWh = toWhId;
     this.inventorySubView = 'transfer';
     this._playChime('tap');
-    this.renderInventoryView();
+    return this.switchTab('inventory');
   }
 
   async renderInventoryView() {
@@ -2682,46 +2719,48 @@ class AppController {
   }
 
   async executeBatchTransfer() {
-    const items = Object.entries(this.batchTransferQuantities)
-      .map(([productId, quantity]) => ({ productId, quantity: parseInt(quantity, 10) || 0 }))
-      .filter(it => it.quantity > 0);
+    return this._runLocked('executeBatchTransfer', async () => {
+      const items = Object.entries(this.batchTransferQuantities)
+        .map(([productId, quantity]) => ({ productId, quantity: parseInt(quantity, 10) || 0 }))
+        .filter(it => it.quantity > 0);
 
-    if (items.length === 0) return;
+      if (items.length === 0) return;
 
-    try {
-      // Avisar si algún producto del reparto consume unidades reservadas en el almacén de origen
-      const originProducts = await this.inventoryAgent.getProducts({ warehouseId: this.batchTransferFromWh });
-      const originMap = new Map(originProducts.map(p => [p.id, p]));
-      const affectedReserved = [];
-      for (const it of items) {
-        const p = originMap.get(it.productId);
-        if (p && p.reservedInWarehouse > 0 && it.quantity > p.availableStock) {
-          affectedReserved.push(`• ${p.name}: envías ${it.quantity} (libres: ${p.availableStock}, reservadas: ${p.reservedInWarehouse})`);
+      try {
+        // Avisar si algún producto del reparto consume unidades reservadas en el almacén de origen
+        const originProducts = await this.inventoryAgent.getProducts({ warehouseId: this.batchTransferFromWh });
+        const originMap = new Map(originProducts.map(p => [p.id, p]));
+        const affectedReserved = [];
+        for (const it of items) {
+          const p = originMap.get(it.productId);
+          if (p && (p.warehouseReserved || 0) > 0 && it.quantity > p.availableStock) {
+            affectedReserved.push(`• ${p.name}: envías ${it.quantity} (libres: ${p.availableStock}, reservadas: ${p.warehouseReserved})`);
+          }
         }
-      }
-      if (affectedReserved.length > 0) {
-        const proceed = confirm(
-          `⚠️ AVISO DE UNIDADES RESERVADAS\n\nVas a mover unidades reservadas del almacén de origen:\n${affectedReserved.join('\n')}\n\n¿Continuar con el reparto igualmente?`
-        );
-        if (!proceed) return;
-      }
+        if (affectedReserved.length > 0) {
+          const proceed = confirm(
+            `⚠️ AVISO DE UNIDADES RESERVADAS\n\nVas a mover unidades reservadas del almacén de origen:\n${affectedReserved.join('\n')}\n\n¿Continuar con el reparto igualmente?`
+          );
+          if (!proceed) return;
+        }
 
-      const res = await this.inventoryAgent.batchTransferStock({
-        fromWarehouseId: this.batchTransferFromWh,
-        toWarehouseId: this.batchTransferToWh,
-        items,
-        notes: this.batchTransferNotes
-      });
+        const res = await this.inventoryAgent.batchTransferStock({
+          fromWarehouseId: this.batchTransferFromWh,
+          toWarehouseId: this.batchTransferToWh,
+          items,
+          notes: this.batchTransferNotes
+        });
 
-      this.batchTransferQuantities = {};
-      this.batchTransferNotes = '';
-      this._playChime('success');
-      this.showToast(res.message, '🚚');
-      this.scheduleCloudSnapshotPublish();
-      await this.renderInventoryView();
-    } catch (err) {
-      alert(`Error en el reparto: ${err.message}`);
-    }
+        this.batchTransferQuantities = {};
+        this.batchTransferNotes = '';
+        this._playChime('success');
+        this.showToast(res.message, '🚚');
+        this.scheduleCloudSnapshotPublish();
+        await this.renderInventoryView();
+      } catch (err) {
+        alert(`Error en el reparto: ${err.message}`);
+      }
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -2878,7 +2917,7 @@ class AppController {
 
     if (custInput) custInput.value = '';
     if (qtyInput) qtyInput.value = 1;
-    const defaultProd = products.find(p => p.id === (productId || products[0]?.id));
+    const defaultProd = products.find(p => p.id === targetProd);
     const defaultPrice = (defaultProd && Number.isFinite(parseFloat(defaultProd.sellPrice))) ? parseFloat(defaultProd.sellPrice).toFixed(2) : '12.00';
     if (priceInput) priceInput.value = defaultPrice;
     if (notesInput) notesInput.value = '';
@@ -2887,19 +2926,23 @@ class AppController {
       if (reservations.length === 0) {
         activeListEl.innerHTML = `<div class="text-xs text-slate-500 text-center py-3">No hay reservas activas.</div>`;
       } else {
-        activeListEl.innerHTML = reservations.map(r => `
+        activeListEl.innerHTML = reservations.map(r => {
+          const parsedUnit = parseFloat(r.agreedUnitPrice);
+          const unitPrice = Number.isFinite(parsedUnit) ? parsedUnit : 12;
+          return `
           <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between gap-2 text-xs">
             <div class="min-w-0 flex-1">
               <div class="font-bold text-purple-300 truncate">👤 ${this._escapeHtml(r.customerName)} • ${r.quantity}x ${this._escapeHtml(r.productName)}</div>
-              <div class="text-[10px] text-slate-400">${this._escapeHtml(r.warehouseName)} • ${(r.quantity * (r.agreedUnitPrice || 12)).toFixed(2)}€</div>
+              <div class="text-[10px] text-slate-400">${this._escapeHtml(r.warehouseName)} • ${(r.quantity * unitPrice).toFixed(2)}€</div>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
-              <button type="button" onclick="window.app.completeReservationQuick('${r.id}', 'Efectivo', true)" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💵 Cobrar</button>
-              <button type="button" onclick="window.app.completeReservationQuick('${r.id}', 'Tarjeta', true)" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💳</button>
-              <button type="button" onclick="window.app.cancelReservationAction('${r.id}', true)" class="btn-pressable text-rose-400 px-1.5 py-1 text-xs font-bold">✕</button>
+              <button type="button" onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Efectivo', true)" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💵 Cobrar</button>
+              <button type="button" onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Tarjeta', true)" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💳</button>
+              <button type="button" onclick="window.app.cancelReservationAction('${this._escJsAttr(r.id)}', true)" class="btn-pressable text-rose-400 px-1.5 py-1 text-xs font-bold">✕</button>
             </div>
           </div>
-        `).join('');
+        `;
+        }).join('');
       }
     }
 
@@ -2947,70 +2990,74 @@ class AppController {
   }
 
   async confirmReservationFromModal() {
-    const customerName = document.getElementById('resModalCustomerName')?.value || '';
-    const isWorker = this.authAgent.isWorker();
-    const warehouseId = isWorker
-      ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
-      : (document.getElementById('resModalWarehouseSelect')?.value || MAIN_WAREHOUSE_ID);
-    const productId = document.getElementById('resModalProductSelect')?.value || '';
-    const quantity = parseInt(document.getElementById('resModalQtyInput')?.value, 10) || 1;
-    const rawPrice = parseFloat(document.getElementById('resModalPriceInput')?.value);
-    const agreedUnitPrice = Number.isFinite(rawPrice) ? rawPrice : 12.00;
-    const notes = document.getElementById('resModalNotesInput')?.value || '';
+    return this._runLocked('confirmReservationFromModal', async () => {
+      const customerName = document.getElementById('resModalCustomerName')?.value || '';
+      const isWorker = this.authAgent.isWorker();
+      const warehouseId = isWorker
+        ? (this.authAgent.getAssignedWarehouseId() || MAIN_WAREHOUSE_ID)
+        : (document.getElementById('resModalWarehouseSelect')?.value || MAIN_WAREHOUSE_ID);
+      const productId = document.getElementById('resModalProductSelect')?.value || '';
+      const quantity = parseInt(document.getElementById('resModalQtyInput')?.value, 10) || 1;
+      const rawPrice = parseFloat(document.getElementById('resModalPriceInput')?.value);
+      const agreedUnitPrice = Number.isFinite(rawPrice) ? rawPrice : 12.00;
+      const notes = document.getElementById('resModalNotesInput')?.value || '';
 
-    try {
-      const res = await this.inventoryAgent.addReservation({
-        productId,
-        warehouseId,
-        quantity,
-        customerName,
-        agreedUnitPrice,
-        notes
-      });
+      try {
+        const res = await this.inventoryAgent.addReservation({
+          productId,
+          warehouseId,
+          quantity,
+          customerName,
+          agreedUnitPrice,
+          notes
+        });
 
-      document.getElementById('reservationFormModal')?.classList.remove('active');
-      this._playChime('success');
-      this.showToast(res.message, '📌');
+        document.getElementById('reservationFormModal')?.classList.remove('active');
+        this._playChime('success');
+        this.showToast(res.message, '📌');
 
-      if (res.reservation) {
-        const wh = await this.inventoryAgent.getWarehouse(warehouseId);
-        this.notificationsAgent.notifyReservation({ reservation: res.reservation, warehouse: wh }).catch(() => {});
-        if (!this.supabaseAgent.isConfigured()) {
-          this.cloudSyncAgent.publishReservationEvent('add', res.reservation).catch(() => {});
+        if (res.reservation) {
+          const wh = await this.inventoryAgent.getWarehouse(warehouseId);
+          this.notificationsAgent.notifyReservation({ reservation: res.reservation, warehouse: wh }).catch(() => {});
+          if (!this.supabaseAgent.isConfigured()) {
+            this.cloudSyncAgent.publishReservationEvent('add', res.reservation).catch(() => {});
+          }
         }
-      }
 
-      await this.renderCurrentTab();
-    } catch (err) {
-      alert(`Error al reservar: ${err.message}`);
-    }
+        await this.renderCurrentTab();
+      } catch (err) {
+        alert(`Error al reservar: ${err.message}`);
+      }
+    });
   }
 
   async completeReservationQuick(reservationId, paymentMethod = 'Efectivo', refreshModal = false) {
-    try {
-      const res = await this.salesAgent.completeReservationAsSale(reservationId, {
-        paymentMethod,
-        paymentStatus: 'paid'
-      });
-      this.lastCompletedSale = res.sale;
-      this._playChime('success');
-      this.showToast(res.message, '💰');
-      if (refreshModal) {
-        document.getElementById('reservationFormModal')?.classList.remove('active');
-      }
-
-      if (res.sale) {
-        if (!this.supabaseAgent.isConfigured()) {
-          this.cloudSyncAgent.publishReservationEvent('complete', { id: reservationId }).catch(() => {});
+    return this._runLocked(`completeRes_${reservationId}`, async () => {
+      try {
+        const res = await this.salesAgent.completeReservationAsSale(reservationId, {
+          paymentMethod,
+          paymentStatus: 'paid'
+        });
+        this.lastCompletedSale = res.sale;
+        this._playChime('success');
+        this.showToast(res.message, '💰');
+        if (refreshModal) {
+          document.getElementById('reservationFormModal')?.classList.remove('active');
         }
-        this._notifyAndSyncSale(res.sale);
-      }
 
-      await this.renderCurrentTab();
-      await this.updateHeaderQuickStats();
-    } catch (err) {
-      alert(`No se pudo completar la reserva: ${err.message}`);
-    }
+        if (res.sale) {
+          if (!this.supabaseAgent.isConfigured()) {
+            this.cloudSyncAgent.publishReservationEvent('complete', { id: reservationId }).catch(() => {});
+          }
+          this._notifyAndSyncSale(res.sale);
+        }
+
+        await this.renderCurrentTab();
+        await this.updateHeaderQuickStats();
+      } catch (err) {
+        alert(`No se pudo completar la reserva: ${err.message}`);
+      }
+    });
   }
 
   async cancelReservationAction(reservationId, refreshModal = false) {
@@ -3131,38 +3178,40 @@ class AppController {
   }
 
   async confirmSingleTransferFromModal() {
-    const productId = document.getElementById('transferModalProductSelect')?.value;
-    const fromWarehouseId = document.getElementById('transferModalFromWh')?.value;
-    const toWarehouseId = document.getElementById('transferModalToWh')?.value;
-    const quantity = parseInt(document.getElementById('transferModalQtyInput')?.value, 10) || 1;
-    const notes = document.getElementById('transferModalNotes')?.value || '';
+    return this._runLocked('confirmSingleTransfer', async () => {
+      const productId = document.getElementById('transferModalProductSelect')?.value;
+      const fromWarehouseId = document.getElementById('transferModalFromWh')?.value;
+      const toWarehouseId = document.getElementById('transferModalToWh')?.value;
+      const quantity = parseInt(document.getElementById('transferModalQtyInput')?.value, 10) || 1;
+      const notes = document.getElementById('transferModalNotes')?.value || '';
 
-    try {
-      const originProducts = await this.inventoryAgent.getProducts({ warehouseId: fromWarehouseId });
-      const prod = originProducts.find(p => p.id === productId);
-      if (prod && prod.reservedInWarehouse > 0 && quantity > prod.availableStock) {
-        const proceed = confirm(
-          `⚠️ AVISO DE RESERVA\n\n"${prod.name}" tiene ${prod.reservedInWarehouse} ud(s) reservadas en origen (quedan ${prod.availableStock} libres de ${prod.warehouseStock} físicas).\nSi transfieres ${quantity} ud(s) moverás stock reservado.\n\n¿Continuar con el reparto igualmente?`
-        );
-        if (!proceed) return;
+      try {
+        const originProducts = await this.inventoryAgent.getProducts({ warehouseId: fromWarehouseId });
+        const prod = originProducts.find(p => p.id === productId);
+        if (prod && (prod.warehouseReserved || 0) > 0 && quantity > prod.availableStock) {
+          const proceed = confirm(
+            `⚠️ AVISO DE RESERVA\n\n"${prod.name}" tiene ${prod.warehouseReserved} ud(s) reservadas en origen (quedan ${prod.availableStock} libres de ${prod.warehouseStock} físicas).\nSi transfieres ${quantity} ud(s) moverás stock reservado.\n\n¿Continuar con el reparto igualmente?`
+          );
+          if (!proceed) return;
+        }
+
+        const res = await this.inventoryAgent.transferStock({
+          productId,
+          fromWarehouseId,
+          toWarehouseId,
+          quantity,
+          notes
+        });
+
+        document.getElementById('transferStockModal')?.classList.remove('active');
+        this._playChime('success');
+        this.showToast(res.message, '🚚');
+        this.scheduleCloudSnapshotPublish();
+        await this.renderCurrentTab();
+      } catch (err) {
+        alert(`No se pudo transferir: ${err.message}`);
       }
-
-      const res = await this.inventoryAgent.transferStock({
-        productId,
-        fromWarehouseId,
-        toWarehouseId,
-        quantity,
-        notes
-      });
-
-      document.getElementById('transferStockModal')?.classList.remove('active');
-      this._playChime('success');
-      this.showToast(res.message, '🚚');
-      this.scheduleCloudSnapshotPublish();
-      await this.renderCurrentTab();
-    } catch (err) {
-      alert(`No se pudo transferir: ${err.message}`);
-    }
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -4595,6 +4644,7 @@ class AppController {
                     }
                     return `
                       <div 
+                        id="hmCell_${dRow.dayIndex}_${cell.slotIndex}"
                         class="heatmap-cell" 
                         style="${bgStyle}"
                         onclick="window.app.inspectHeatmapCell(${dRow.dayIndex}, ${cell.slotIndex})"
@@ -4617,6 +4667,8 @@ class AppController {
     if (!hm || !hm.days || !hm.days[dayIdx]) return;
     const cell = hm.days[dayIdx].slots[slotIdx];
     if (!cell) return;
+    document.querySelectorAll('.heatmap-cell.active').forEach(el => el.classList.remove('active'));
+    document.getElementById(`hmCell_${dayIdx}_${slotIdx}`)?.classList.add('active');
     this._playChime('tap');
     const bar = document.getElementById('heatmapInspectorBar');
     if (bar) {
@@ -5120,7 +5172,8 @@ class AppController {
             ` : ''}
 
             <!-- Barras sutiles de fondo cuando estamos en modo Por Tramo -->
-            ${mode === 'interval' ? coordsBilled.map((c, i) => {
+            ${mode === 'interval' ? coordsBilled.map((c) => {
+              if (c.val <= 0) return '';
               const bw = Math.max(4, Math.min(20, colW * 0.55));
               const bh = Math.max(2, baseLineY - c.y);
               return `<rect x="${(c.x - bw / 2).toFixed(1)}" y="${c.y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="url(#revBarGrad)" />`;
@@ -5363,6 +5416,7 @@ class AppController {
 
             <!-- Barras de Unidades -->
             ${coordsUnits.map((c) => {
+              if (c.val <= 0) return '';
               const bw = Math.max(4, Math.min(22, colW * 0.58));
               const bh = Math.max(2, baseLineY - c.y);
               return `<rect x="${(c.x - bw / 2).toFixed(1)}" y="${c.y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3.5" fill="url(#unitsBarGrad)" />`;
@@ -6540,6 +6594,8 @@ class AppController {
       this.newOrderDraft = null;
       if (this.supabaseAgent.isConfigured()) {
         await this.supabaseAgent.replaceCloudWithLocal();
+      } else {
+        this.scheduleCloudSnapshotPublish();
       }
       this._playChime('success');
       this.showToast('¡10 Sabores cargados en local y nube!', '✓');
@@ -7068,29 +7124,31 @@ class AppController {
   }
 
   async confirmSaveNewOrder() {
-    const draft = this.newOrderDraft;
-    if (!draft) return;
+    return this._runLocked('confirmSaveNewOrder', async () => {
+      const draft = this.newOrderDraft;
+      if (!draft) return;
 
-    try {
-      const res = await this.inventoryAgent.startNewOrder({
-        name: draft.name,
-        supplier: draft.supplier,
-        notes: draft.notes,
-        resetExistingStock: draft.resetExistingStock,
-        existingItems: draft.existingItems,
-        newItems: draft.newItems
-      });
+      try {
+        const res = await this.inventoryAgent.startNewOrder({
+          name: draft.name,
+          supplier: draft.supplier,
+          notes: draft.notes,
+          resetExistingStock: draft.resetExistingStock,
+          existingItems: draft.existingItems,
+          newItems: draft.newItems
+        });
 
-      this.newOrderDraft = null;
-      document.getElementById('newOrderModal')?.classList.remove('active');
-      this._playChime('success');
-      this.showToast(res.message, '📦');
-      this.scheduleCloudSnapshotPublish();
-      await this.renderCurrentTab();
-      await this.updateHeaderQuickStats();
-    } catch (err) {
-      alert(`No se pudo registrar el pedido: ${err.message}`);
-    }
+        this.newOrderDraft = null;
+        document.getElementById('newOrderModal')?.classList.remove('active');
+        this._playChime('success');
+        this.showToast(res.message, '📦');
+        this.scheduleCloudSnapshotPublish();
+        await this.renderCurrentTab();
+        await this.updateHeaderQuickStats();
+      } catch (err) {
+        alert(`No se pudo registrar el pedido: ${err.message}`);
+      }
+    });
   }
 
   // ==========================================

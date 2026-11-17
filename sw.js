@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestor-ventas-ios-v4.8';
+const CACHE_NAME = 'gestor-ventas-ios-v4.9';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -21,7 +21,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[ServiceWorker] Precaching app shell v4.8...');
+      console.log('[ServiceWorker] Precaching app shell v4.9...');
       return cache.addAll(ASSETS_TO_CACHE);
     }).then(() => self.skipWaiting())
   );
@@ -57,11 +57,13 @@ self.addEventListener('fetch', (event) => {
   }
 
   const isSameOrigin = url.origin === self.location.origin;
+  const isStaticCdn = url.hostname === 'cdn.tailwindcss.com' || url.hostname === 'cdn.jsdelivr.net';
 
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        if (isSameOrigin && networkResponse && networkResponse.status === 200) {
+        const cacheable = networkResponse && (networkResponse.status === 200 || (isStaticCdn && networkResponse.type === 'opaque'));
+        if ((isSameOrigin || isStaticCdn) && cacheable) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);

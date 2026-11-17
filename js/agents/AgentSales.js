@@ -12,7 +12,7 @@
  * - Proporciona reversión atómica de transacciones erróneas devolviendo el stock a su almacén
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=4.9';
 
 export class AgentSales {
   /**
@@ -325,16 +325,36 @@ export class AgentSales {
       throw new Error('Venta no encontrada para reversión.');
     }
 
-    const targetWh = sale.warehouseId || MAIN_WAREHOUSE_ID;
-    const targetWhName = sale.warehouseName || 'Mi Almacén (Principal)';
+    const originalWhId = sale.warehouseId || MAIN_WAREHOUSE_ID;
+    const existingWh = originalWhId === MAIN_WAREHOUSE_ID
+      ? await this.inventory.getWarehouse(MAIN_WAREHOUSE_ID)
+      : await this.inventory.getWarehouse(originalWhId);
+    const targetWh = existingWh ? originalWhId : MAIN_WAREHOUSE_ID;
+    const targetWhName = existingWh
+      ? (sale.warehouseName || existingWh.name || 'Mi Almacén (Principal)')
+      : 'Mi Almacén (Principal)';
 
-    // Devolver el stock al almacén original
+    // Devolver el stock al almacén original (o al Principal si el almacén secundario fue eliminado)
     let stockRestored = false;
     try {
       await this.inventory.adjustStock(sale.productId, sale.quantity, targetWh);
       stockRestored = true;
     } catch (err) {
       console.warn('No se pudo reponer stock (posiblemente el producto fue eliminado):', err);
+    }
+
+    // Si se anula una venta de Principal perteneciente a un pedido antiguo reiniciado, ajustar su límite FIFO
+    if (sale.orderId && originalWhId === MAIN_WAREHOUSE_ID && this.storage.getOrderById) {
+      try {
+        const saleOrder = await this.storage.getOrderById(sale.orderId);
+        if (saleOrder && Array.isArray(saleOrder.items)) {
+          const item = saleOrder.items.find(it => it.productId === sale.productId);
+          if (item && item.carryoverOnlyNonMain && item.carryoverLimit !== undefined && item.carryoverLimit !== null) {
+            item.carryoverLimit = Math.max(0, Number(item.carryoverLimit) - (parseInt(sale.quantity, 10) || 0));
+            await this.storage.saveOrder(saleOrder);
+          }
+        }
+      } catch (_) {}
     }
 
     // Eliminar la venta del registro

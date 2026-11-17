@@ -170,6 +170,7 @@ export class AgentStorage {
 
       request.onsuccess = async (event) => {
         this.db = event.target.result;
+        this._hadSuccessfulOpen = true;
         this.db.onversionchange = () => {
           try { this.db.close(); } catch (_) {}
           this.db = null;
@@ -196,6 +197,40 @@ export class AgentStorage {
         resolve(this);
       };
     });
+  }
+
+  async _hasOpenDb() {
+    if (this.db) return true;
+    if (!this.isIndexedDBSupported || !this._hadSuccessfulOpen || typeof indexedDB === 'undefined') {
+      return false;
+    }
+    if (!this._reopenPromise) {
+      this._reopenPromise = new Promise((resolve) => {
+        try {
+          const req = indexedDB.open(this.dbName, this.dbVersion);
+          req.onsuccess = (ev) => {
+            this.db = ev.target.result;
+            this.db.onversionchange = () => {
+              try { this.db.close(); } catch (_) {}
+              this.db = null;
+            };
+            this.db.onclose = () => {
+              this.db = null;
+            };
+            this._reopenPromise = null;
+            resolve(true);
+          };
+          req.onerror = () => {
+            this._reopenPromise = null;
+            resolve(false);
+          };
+        } catch (_) {
+          this._reopenPromise = null;
+          resolve(false);
+        }
+      });
+    }
+    return this._reopenPromise;
   }
 
   /**
@@ -229,7 +264,7 @@ export class AgentStorage {
 
   async getAllWarehouses() {
     let warehouses = [];
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       warehouses = await new Promise((resolve, reject) => {
         const tx = this.db.transaction('warehouses', 'readonly');
         const store = tx.objectStore('warehouses');
@@ -266,7 +301,7 @@ export class AgentStorage {
 
   async getWarehouseById(id) {
     const targetId = id || MAIN_WAREHOUSE_ID;
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       const wh = await new Promise((resolve, reject) => {
         const tx = this.db.transaction('warehouses', 'readonly');
         const store = tx.objectStore('warehouses');
@@ -300,7 +335,7 @@ export class AgentStorage {
     this._normalizeWarehouseObject(warehouse);
     warehouse.updatedAt = new Date().toISOString();
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('warehouses', 'readwrite');
         const store = tx.objectStore('warehouses');
@@ -329,7 +364,7 @@ export class AgentStorage {
       throw new Error('No se puede eliminar el Almacén Principal.');
     }
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('warehouses', 'readwrite');
         const store = tx.objectStore('warehouses');
@@ -355,7 +390,7 @@ export class AgentStorage {
   // ==========================================
 
   async getAllReservations() {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('reservations', 'readonly');
         const store = tx.objectStore('reservations');
@@ -384,7 +419,7 @@ export class AgentStorage {
     }
     reservation.updatedAt = new Date().toISOString();
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('reservations', 'readwrite');
         const store = tx.objectStore('reservations');
@@ -408,7 +443,7 @@ export class AgentStorage {
   }
 
   async deleteReservation(id, options = {}) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('reservations', 'readwrite');
         const store = tx.objectStore('reservations');
@@ -433,7 +468,7 @@ export class AgentStorage {
   // ==========================================
 
   async getAllSettlements() {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('settlements', 'readonly');
         const store = tx.objectStore('settlements');
@@ -461,7 +496,7 @@ export class AgentStorage {
       settlement.timestamp = new Date().toISOString();
     }
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('settlements', 'readwrite');
         const store = tx.objectStore('settlements');
@@ -485,7 +520,7 @@ export class AgentStorage {
   }
 
   async deleteSettlement(id, options = {}) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('settlements', 'readwrite');
         const store = tx.objectStore('settlements');
@@ -510,7 +545,7 @@ export class AgentStorage {
   // ==========================================
 
   async getAllTransfers() {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('transfers', 'readonly');
         const store = tx.objectStore('transfers');
@@ -538,7 +573,7 @@ export class AgentStorage {
       transfer.timestamp = new Date().toISOString();
     }
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('transfers', 'readwrite');
         const store = tx.objectStore('transfers');
@@ -562,7 +597,7 @@ export class AgentStorage {
   }
 
   async deleteTransfer(id, options = {}) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('transfers', 'readwrite');
         const store = tx.objectStore('transfers');
@@ -587,7 +622,7 @@ export class AgentStorage {
   // ==========================================
 
   async getConfig(key, defaultValue = null) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('config', 'readonly');
         const store = tx.objectStore('config');
@@ -611,7 +646,7 @@ export class AgentStorage {
       updatedAt: new Date().toISOString()
     };
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('config', 'readwrite');
         const store = tx.objectStore('config');
@@ -638,7 +673,7 @@ export class AgentStorage {
   // ==========================================
 
   async getAllProducts() {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('products', 'readonly');
         const store = tx.objectStore('products');
@@ -653,7 +688,7 @@ export class AgentStorage {
   }
 
   async getProductById(id) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('products', 'readonly');
         const store = tx.objectStore('products');
@@ -673,7 +708,7 @@ export class AgentStorage {
     }
     product.updatedAt = new Date().toISOString();
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('products', 'readwrite');
         const store = tx.objectStore('products');
@@ -697,7 +732,7 @@ export class AgentStorage {
   }
 
   async deleteProduct(id, options = {}) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('products', 'readwrite');
         const store = tx.objectStore('products');
@@ -722,7 +757,7 @@ export class AgentStorage {
   // ==========================================
 
   async getAllSales() {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('sales', 'readonly');
         const store = tx.objectStore('sales');
@@ -750,7 +785,7 @@ export class AgentStorage {
       sale.timestamp = new Date().toISOString();
     }
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('sales', 'readwrite');
         const store = tx.objectStore('sales');
@@ -774,7 +809,7 @@ export class AgentStorage {
   }
 
   async deleteSale(id, options = {}) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('sales', 'readwrite');
         const store = tx.objectStore('sales');
@@ -799,7 +834,7 @@ export class AgentStorage {
   // ==========================================
 
   async getAllOrders() {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('orders', 'readonly');
         const store = tx.objectStore('orders');
@@ -821,7 +856,7 @@ export class AgentStorage {
 
   async getOrderById(id) {
     if (!id) return null;
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       return new Promise((resolve, reject) => {
         const tx = this.db.transaction('orders', 'readonly');
         const store = tx.objectStore('orders');
@@ -849,7 +884,7 @@ export class AgentStorage {
     }
     order.updatedAt = new Date().toISOString();
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('orders', 'readwrite');
         const store = tx.objectStore('orders');
@@ -873,7 +908,7 @@ export class AgentStorage {
   }
 
   async deleteOrder(id, options = {}) {
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction('orders', 'readwrite');
         const store = tx.objectStore('orders');
@@ -909,7 +944,7 @@ export class AgentStorage {
     const hasOrdersPayload = remoteData.orders !== null && remoteData.orders !== undefined;
     const orders = hasOrdersPayload ? remoteData.orders : null;
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const storeNames = ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements'];
         if (hasOrdersPayload) storeNames.push('orders');
@@ -1044,7 +1079,7 @@ export class AgentStorage {
     const mergedTransfers = mergeById(localTransfers, payload.transfers || []);
     const mergedSettlements = mergeById(localSettlements, payload.settlements || []);
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
           ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements'],
@@ -1219,7 +1254,7 @@ export class AgentStorage {
       notes: s.notes || ''
     }));
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
           ['products', 'sales', 'warehouses', 'transfers', 'reservations', 'settlements', 'orders'],
@@ -1332,7 +1367,7 @@ export class AgentStorage {
       updatedAt: now
     };
 
-    if (this.db) {
+    if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
           ['products', 'sales', 'transfers', 'reservations', 'settlements', 'orders'],

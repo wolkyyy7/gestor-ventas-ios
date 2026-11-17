@@ -111,6 +111,18 @@ export class AgentAuth {
             this._saveSession(this._buildWorkerSession(matchedWh));
             return this.session;
           }
+
+          // Enlace ?wh=... o ?pin=... inválido/revocado: NO escalar silenciosamente a Jefe
+          this.urlAuthError = 'El enlace de trabajador no es válido o ha caducado. Introduce el PIN.';
+          this._saveSession({
+            role: 'worker',
+            warehouseId: urlWh && urlWh !== 'wh_main' ? urlWh : null,
+            warehouseName: 'Acceso Restringido',
+            workerName: 'Sin autorizar',
+            isWorkerMode: true,
+            invalidInvite: true
+          });
+          return this.session;
         }
       }
     } catch (err) {

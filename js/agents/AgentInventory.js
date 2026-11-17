@@ -10,7 +10,7 @@
  * - Valoración financiera y generador de mensajes preescritos de stock listos para copiar y pegar
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=4.9';
 
 export class AgentInventory {
   /**
@@ -864,9 +864,14 @@ export class AgentInventory {
         if (whStock <= this.lowStockThreshold) lowStockCount++;
       }
 
-      const reservedUnits = activeReservations
-        .filter(r => (r.warehouseId || MAIN_WAREHOUSE_ID) === wh.id)
-        .reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+      let reservedUnits = 0;
+      for (const p of products) {
+        const whStock = p.stockByWarehouse[wh.id] || 0;
+        const prodReserved = activeReservations
+          .filter(r => r.productId === p.id && (r.warehouseId || MAIN_WAREHOUSE_ID) === wh.id)
+          .reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        reservedUnits += Math.min(whStock, prodReserved);
+      }
 
       const availableUnits = Math.max(0, totalUnits - reservedUnits);
       const potentialProfit = retailValuation - costValuation;
@@ -920,9 +925,16 @@ export class AgentInventory {
       if (stock <= this.lowStockThreshold) lowStockCount++;
     }
 
-    const totalReservedUnits = activeReservations
-      .filter(r => (!warehouseId || warehouseId === 'all') ? true : (r.warehouseId || MAIN_WAREHOUSE_ID) === warehouseId)
-      .reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+    let totalReservedUnits = 0;
+    for (const p of products) {
+      const stock = (!warehouseId || warehouseId === 'all')
+        ? (p.stock || 0)
+        : (p.stockByWarehouse[warehouseId] || 0);
+      const prodReserved = activeReservations
+        .filter(r => r.productId === p.id && ((!warehouseId || warehouseId === 'all') ? true : (r.warehouseId || MAIN_WAREHOUSE_ID) === warehouseId))
+        .reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+      totalReservedUnits += Math.min(stock, prodReserved);
+    }
 
     const totalAvailableUnits = Math.max(0, totalStockUnits - totalReservedUnits);
     const potentialGrossProfit = totalRetailValuation - totalCostValuation;
@@ -1145,6 +1157,15 @@ export class AgentInventory {
 
     if (validExisting.length === 0 && validNew.length === 0) {
       throw new Error('Añade al menos 1 producto con cantidad mayor que 0 para registrar el pedido.');
+    }
+
+    // Pre-validación antes de tocar pedidos o stock existentes
+    for (const newIt of validNew) {
+      const cp = parseFloat(newIt.costPrice);
+      const sp = parseFloat(newIt.sellPrice);
+      if (isNaN(cp) || cp < 0 || isNaN(sp) || sp < 0) {
+        throw new Error(`Precios inválidos para el nuevo sabor "${newIt.name.trim()}".`);
+      }
     }
 
     const nowIso = new Date().toISOString();

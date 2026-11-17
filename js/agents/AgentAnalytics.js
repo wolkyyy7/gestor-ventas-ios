@@ -13,7 +13,7 @@
  * 9. Series Temporales Multi-Escala (`timeSeries`) y Ritmo de Venta (`velocityMetrics`)
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=4.9';
 
 export class AgentAnalytics {
   /**
@@ -68,7 +68,8 @@ export class AgentAnalytics {
         (sum, v) => sum + (Math.max(0, parseInt(v, 10) || 0)),
         0
       );
-      productPriceMap.set(copy.id, parseFloat(copy.sellPrice) || 12.00);
+      const parsedSp = parseFloat(copy.sellPrice);
+      productPriceMap.set(copy.id, Number.isFinite(parsedSp) ? parsedSp : 12.00);
       return copy;
     });
 
@@ -901,7 +902,8 @@ export class AgentAnalytics {
 
     activeReservations.forEach(r => {
       const qty = parseInt(r.quantity, 10) || 0;
-      const price = parseFloat(r.agreedUnitPrice) || 12.00;
+      const parsedAgr = parseFloat(r.agreedUnitPrice);
+      const price = Number.isFinite(parsedAgr) ? parsedAgr : 12.00;
       totalReservedUnits += qty;
       totalReservedValue += qty * price;
     });
