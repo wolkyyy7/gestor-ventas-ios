@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=4.9';
-import { AgentInventory } from './agents/AgentInventory.js?v=4.9';
-import { AgentSales } from './agents/AgentSales.js?v=4.9';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=4.9';
-import { AgentAuth } from './agents/AgentAuth.js?v=4.9';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=4.9';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=4.9';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=4.9';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.0';
+import { AgentInventory } from './agents/AgentInventory.js?v=5.0';
+import { AgentSales } from './agents/AgentSales.js?v=5.0';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.0';
+import { AgentAuth } from './agents/AgentAuth.js?v=5.0';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=5.0';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.0';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=5.0';
 
-const APP_VERSION = 'v4.9';
+const APP_VERSION = 'v5.0';
 
 class AppController {
   constructor() {
@@ -73,6 +73,7 @@ class AppController {
     this.analyticsTimeframe = 'today'; // 'today' | 'week' | 'month' | 'all'
     this.analyticsWarehouseFilter = 'all'; // 'all' | 'wh_main' | warehouseId
     this.analyticsOrderFilter = 'all'; // 'all' | orderId
+    this.analyticsSubView = 'resumen'; // 'resumen' | 'pedidos' | 'vendedores' | 'avanzado'
     this.newOrderDraft = null;
     this.revenueChartScale = null; // null = sincronizado con timeSeries.defaultScale
     this.revenueChartMode = 'interval'; // 'interval' | 'cumulative'
@@ -204,18 +205,18 @@ class AppController {
     if (roleBadge) {
       if (isWorker) {
         roleBadge.textContent = `👤 ${session.workerName || session.warehouseName}`;
-        roleBadge.className = 'btn-pressable px-2 py-0.5 rounded-md bg-indigo-500/20 border border-indigo-400/40 text-[9px] font-extrabold text-indigo-200 uppercase tracking-wider whitespace-nowrap';
+        roleBadge.className = 'btn-pressable px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-400/30 text-[10px] font-bold text-indigo-200 tracking-tight whitespace-nowrap';
       } else {
         roleBadge.textContent = '👑 Jefe';
-        roleBadge.className = 'btn-pressable px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[9px] font-extrabold text-emerald-300 uppercase tracking-wider whitespace-nowrap';
+        roleBadge.className = 'btn-pressable px-2 py-0.5 rounded-full bg-emerald-500/12 border border-emerald-500/25 text-[10px] font-bold text-emerald-300 tracking-tight whitespace-nowrap';
       }
     }
 
     if (subtitleEl) {
       const sbLive = this.supabaseAgent.isConfigured();
       subtitleEl.textContent = isWorker
-        ? `Almacén: ${session.warehouseName}${sbLive ? ' • ☁️ Cloud' : ''}`
-        : `${sbLive ? 'Supabase Live' : 'Local'} • ntfy: ${this.notificationsAgent.getSettings().topic}`;
+        ? `${session.warehouseName}${sbLive ? ' • Cloud' : ''}`
+        : `${sbLive ? 'Supabase Live' : 'Modo Local'} • ${this.notificationsAgent.getSettings().topic}`;
     }
 
     if (allTimePill) {
@@ -429,6 +430,16 @@ class AppController {
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tabName);
     });
+    const navTitleEl = document.getElementById('headerNavTitle');
+    if (navTitleEl) {
+      const titles = {
+        sales: 'Vender',
+        inventory: 'Inventario',
+        analytics: this.authAgent.isWorker() ? 'Mis Ventas' : 'Métricas',
+        settings: 'Ajustes'
+      };
+      navTitleEl.textContent = titles[tabName] || 'Vender';
+    }
 
     document.querySelectorAll('.tab-view').forEach(view => {
       view.classList.add('hidden');
@@ -750,7 +761,7 @@ class AppController {
           onclick="window.app.openQuickSaleSheet('${p.id}')"
         >
           <div>
-            <div class="flex items-start justify-between gap-2 mb-2">
+            <div class="flex items-start justify-between gap-2 mb-2.5">
               <div class="flavor-orb" style="background: ${theme.orbBg};">
                 <span>${theme.emoji}</span>
               </div>
@@ -760,22 +771,17 @@ class AppController {
                     ? 'badge-low-stock'
                     : isLowHere ? 'badge-low-stock' : 'badge-ok-stock'
                 }">
-                  ${availStock <= 0 ? (whReserved > 0 ? '0 libres' : '0 aquí') : `${availStock} libres`}
+                  ${availStock <= 0 ? (whReserved > 0 ? '0 libres' : '0 uds') : `${availStock} uds`}
                 </span>
                 ${hasMultipleWarehouses ? `
-                  <span class="text-[9.5px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900/90 text-slate-300 border border-white/10 tabular-nums" title="Stock global en todos los almacenes">
+                  <span class="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-white/[0.04] text-slate-400 border border-white/10 tabular-nums" title="Stock global en todos los almacenes">
                     🌐 ${globalStock} tot.
                   </span>
                 ` : ''}
               </div>
             </div>
 
-            <h4 class="font-extrabold text-white text-[13.5px] line-clamp-2 leading-snug tracking-tight">${this._escapeHtml(p.name)}</h4>
-
-            <!-- Mini barra de nivel de stock estilo iOS -->
-            <div class="stock-mini-bar">
-              <div class="stock-mini-fill" style="width: ${stockBarPct}%; background: ${availStock <= 3 ? 'linear-gradient(90deg, #f43f5e, #fbbf24)' : theme.barBg};"></div>
-            </div>
+            <h4 class="font-bold text-white text-[14px] line-clamp-2 leading-snug tracking-tight">${this._escapeHtml(p.name)}</h4>
 
             ${whReserved > 0 ? `
               <div 
@@ -3681,47 +3687,31 @@ class AppController {
         </button>
       </div>
 
-      <!-- 1. TARJETA DESTACADA: FACTURACIÓN GENERAL HISTÓRICA ("Cuánto se factura en general") -->
-      <div class="ios-card ios-card-glow-emerald mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-1.5">
-            <span class="text-sm">🏆</span>
-            <span class="text-[11px] font-extrabold uppercase tracking-wider text-emerald-300">
-              Facturación General Acumulada (Total Negocio)
-            </span>
-          </div>
-          <span class="badge badge-ok-stock text-[10px]">${allTime.transactionCount} ventas totales</span>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-2">
-          <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
-            <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Facturado General</div>
-            <div class="text-xl font-black text-white mt-0.5">${allTime.totalBilled.toFixed(2)}€</div>
-            <div class="text-[10px] text-slate-400 mt-0.5">Ticket medio: ${allTime.averageTicket.toFixed(2)}€</div>
-          </div>
-
-          <div class="bg-emerald-950/50 p-3 rounded-xl border border-emerald-500/30">
-            <div class="text-[10px] text-emerald-300 uppercase font-semibold">Beneficio Neto Total</div>
-            <div class="text-xl font-black text-emerald-400 mt-0.5">+${allTime.totalProfit.toFixed(2)}€</div>
-            <div class="text-[10px] text-emerald-300/80 mt-0.5">Margen global: ${allTime.overallProfitMargin}%</div>
-          </div>
-
-          <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
-            <div class="text-[10px] text-slate-400 uppercase font-semibold">Unidades Vendidas</div>
-            <div class="text-xl font-black text-white mt-0.5">${allTime.totalUnits} uds</div>
-            <div class="text-[10px] text-slate-400 mt-0.5">Coste merc.: ${allTime.totalCost.toFixed(2)}€</div>
-          </div>
-
-          <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
-            <div class="text-[10px] text-slate-400 uppercase font-semibold">Efectivo vs Tarjeta</div>
-            <div class="text-xs font-bold text-emerald-400 mt-1">💵 ${allTime.cashBilled.toFixed(2)}€ (${allTime.cashPercentage}%)</div>
-            <div class="text-xs font-bold text-indigo-300 mt-0.5">💳 ${allTime.cardBilled.toFixed(2)}€ (${allTime.cardPercentage}%)</div>
-          </div>
-        </div>
+      <!-- SUB-NAVEGACIÓN LIQUID GLASS DE MÉTRICAS (iOS 27) -->
+      <div class="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-white/[0.04] border border-white/10 mb-4">
+        ${[
+          { id: 'resumen', label: '📊 Resumen' },
+          { id: 'pedidos', label: '📦 Pedidos' },
+          { id: 'vendedores', label: '🤝 Equipo' },
+          { id: 'avanzado', label: '🧠 Análisis' }
+        ].map(tab => {
+          const isSubActive = (this.analyticsSubView || 'resumen') === tab.id;
+          return `
+            <button
+              type="button"
+              onclick="window.app.setAnalyticsSubView('${tab.id}')"
+              class="btn-pressable py-2 px-2 rounded-xl text-[11px] font-bold transition-all text-center truncate ${
+                isSubActive
+                  ? 'bg-white text-slate-950 shadow-sm font-extrabold'
+                  : 'text-slate-400 hover:text-white'
+              }"
+            >${tab.label}</button>
+          `;
+        }).join('')}
       </div>
 
-      <!-- 1.B MÉTRICAS Y COMPARATIVA DE CADA PEDIDO / LOTE -->
-      ${ordersMetricsHtml}
+      <!-- SUB-VISTA 1: RESUMEN (KPIs Periodo, Gráficas, Facturación General, Fiados/Reservas, Pagos/Top y Últimas Ventas) -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? ' block' : 'hidden'}">
 
       <!-- 2. TARJETAS KPI DEL PERIODO Y ALMACÉN SELECCIONADO -->
       <div class="mb-2 px-1 flex items-center justify-between">
@@ -3731,8 +3721,8 @@ class AppController {
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-        <div class="ios-card mb-0 bg-gradient-to-br from-slate-800/90 to-slate-900 border-indigo-500/30 p-3.5">
-          <div class="text-[11px] text-indigo-300 font-bold mb-1">💶 Facturado Periodo</div>
+        <div class="ios-card mb-0 p-3.5">
+          <div class="text-[11px] text-slate-400 font-semibold mb-1">💶 Facturado Periodo</div>
           <div class="text-2xl font-black text-white tracking-tight">${data.totalBilled.toFixed(2)}€</div>
           <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
             <span>${data.transactionCount} ventas</span>
@@ -3740,8 +3730,8 @@ class AppController {
           </div>
         </div>
 
-        <div class="ios-card mb-0 bg-gradient-to-br from-emerald-950/60 to-slate-900 border-emerald-500/30 p-3.5">
-          <div class="text-[11px] text-emerald-400 font-bold mb-1">📈 Beneficio Periodo</div>
+        <div class="ios-card ios-card-glow-emerald mb-0 p-3.5">
+          <div class="text-[11px] text-emerald-400 font-semibold mb-1">📈 Beneficio Periodo</div>
           <div class="text-2xl font-black text-emerald-400 tracking-tight">+${data.totalProfit.toFixed(2)}€</div>
           <div class="text-[10px] text-emerald-300/90 mt-1 flex justify-between">
             <span>Margen: ${data.overallProfitMargin}%</span>
@@ -3750,7 +3740,7 @@ class AppController {
         </div>
 
         <div class="ios-card mb-0 p-3.5">
-          <div class="text-[11px] text-slate-300 font-bold mb-1">📦 Volumen Vendido</div>
+          <div class="text-[11px] text-slate-400 font-semibold mb-1">📦 Volumen Vendido</div>
           <div class="text-2xl font-black text-white tracking-tight">${data.totalUnits} uds</div>
           <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
             <span>PVP medio: ${data.averageUnitPrice.toFixed(2)}€</span>
@@ -3758,7 +3748,7 @@ class AppController {
         </div>
 
         <div class="ios-card mb-0 p-3.5">
-          <div class="text-[11px] text-slate-300 font-bold mb-1">🧾 Ticket Medio</div>
+          <div class="text-[11px] text-slate-400 font-semibold mb-1">🧾 Ticket Medio</div>
           <div class="text-2xl font-black text-white tracking-tight">${data.averageTicket.toFixed(2)}€</div>
           <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
             <span>💵 ${data.paymentMethods.Efectivo.percentage}%</span>
@@ -3771,22 +3761,74 @@ class AppController {
       ${revenueChartCardHtml}
       ${unitsChartCardHtml}
 
-      <!-- PUNTO 1: CONTROL DE CUENTAS, LIQUIDACIONES Y VAPERS DE REGALO CON TRABAJADORES -->
-      ${workerAccountsHtml}
+      <!-- 1. TARJETA DESTACADA: FACTURACIÓN GENERAL HISTÓRICA ("Cuánto se factura en general") -->
+      <details class="ios-accordion mb-4" open>
+        <summary>
+          <div class="flex items-center gap-2">
+            <span>🏆</span>
+            <span>Facturación General Acumulada (Total Negocio)</span>
+            <span class="badge badge-ok-stock text-[10px] ml-1">${allTime.transactionCount} ventas</span>
+          </div>
+        </summary>
+        <div class="ios-accordion-body">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
+              <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Facturado General</div>
+              <div class="text-xl font-black text-white mt-0.5">${allTime.totalBilled.toFixed(2)}€</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Ticket medio: ${allTime.averageTicket.toFixed(2)}€</div>
+            </div>
+
+            <div class="bg-emerald-950/50 p-3 rounded-xl border border-emerald-500/30">
+              <div class="text-[10px] text-emerald-300 uppercase font-semibold">Beneficio Neto Total</div>
+              <div class="text-xl font-black text-emerald-400 mt-0.5">+${allTime.totalProfit.toFixed(2)}€</div>
+              <div class="text-[10px] text-emerald-300/80 mt-0.5">Margen global: ${allTime.overallProfitMargin}%</div>
+            </div>
+
+            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
+              <div class="text-[10px] text-slate-400 uppercase font-semibold">Unidades Vendidas</div>
+              <div class="text-xl font-black text-white mt-0.5">${allTime.totalUnits} uds</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Coste merc.: ${allTime.totalCost.toFixed(2)}€</div>
+            </div>
+
+            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
+              <div class="text-[10px] text-slate-400 uppercase font-semibold">Efectivo vs Tarjeta</div>
+              <div class="text-xs font-bold text-emerald-400 mt-1">💵 ${allTime.cashBilled.toFixed(2)}€ (${allTime.cashPercentage}%)</div>
+              <div class="text-xs font-bold text-indigo-300 mt-0.5">💳 ${allTime.cardBilled.toFixed(2)}€ (${allTime.cardPercentage}%)</div>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <!-- PUNTO 4: CONTROL DE FIADOS (PENDIENTES DE COBRO) Y RESERVAS ACTIVAS -->
       ${debtsAndReservationsHtml}
+      </div>
 
-      <!-- PUNTO 3: CONTROL DE DESCUENTOS Y PRECIO MEDIO REAL POR TRABAJADOR -->
-      ${discountMetricsHtml}
+      <!-- SUB-VISTA 2: PEDIDOS Y SALUD FINANCIERA -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'pedidos' ? 'block' : 'hidden'}">
+        <!-- 1.B MÉTRICAS Y COMPARATIVA DE CADA PEDIDO / LOTE -->
+        ${ordersMetricsHtml}
+      </div>
 
-      <!-- PUNTO 7: INTELIGENCIA DE SABORES POR ZONA / TRABAJADOR Y REPOSICIÓN INTELIGENTE -->
-      ${flavorIntelHtml}
+      <!-- SUB-VISTA 3: EQUIPO, CUENTAS CON TRABAJADORES, ALMACENES Y DESCUENTOS -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'vendedores' ? 'block' : 'hidden'}">
+        <!-- PUNTO 1: CONTROL DE CUENTAS, LIQUIDACIONES Y VAPERS DE REGALO CON TRABAJADORES -->
+        ${workerAccountsHtml}
 
-      <!-- PUNTO 5: MAPA DE CALOR DE VENTAS DÍAS × FRANJAS HORARIAS -->
-      ${salesHeatmapHtml}
+        <!-- PUNTO 3: CONTROL DE DESCUENTOS Y PRECIO MEDIO REAL POR TRABAJADOR -->
+        ${discountMetricsHtml}
+      </div>
+
+      <!-- SUB-VISTA 4: ANÁLISIS AVANZADO (INTELIGENCIA SABORES, MAPA CALOR) -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block' : 'hidden'}">
+        <!-- PUNTO 7: INTELIGENCIA DE SABORES POR ZONA / TRABAJADOR Y REPOSICIÓN INTELIGENTE -->
+        ${flavorIntelHtml}
+
+        <!-- PUNTO 5: MAPA DE CALOR DE VENTAS DÍAS × FRANJAS HORARIAS -->
+        ${salesHeatmapHtml}
+      </div>
 
       <!-- 3. DESGLOSE COMPLETO POR ALMACENES Y CASAS DE TRABAJADORES ("Cuánto por almacenes y todo") -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'vendedores' ? 'block' : 'hidden'}">
       <div class="ios-card ios-card-glow-indigo mb-4">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
@@ -3887,8 +3929,10 @@ class AppController {
           }).join('')}
         </div>
       </div>
+      </div>
 
       <!-- 4. SALUD FINANCIERA, RECUPERACIÓN DE INVERSIÓN (BREAK-EVEN), ROI Y PROYECCIÓN TOTAL -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'pedidos' ? 'block' : 'hidden'}">
       <div class="ios-card mb-4">
         <div class="flex items-center justify-between mb-2.5">
           <div>
@@ -3949,8 +3993,10 @@ class AppController {
           </div>
         </div>
       </div>
+      </div>
 
       <!-- 5. EVOLUCIÓN DE ÚLTIMOS 7 DÍAS Y RITMO DE VENTA (velocityMetrics) -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block' : 'hidden'}">
       <div class="ios-card mb-4">
         <div class="flex items-center justify-between mb-2">
           <div>
@@ -4012,8 +4058,10 @@ class AppController {
           </div>
         </div>
       </div>
+      </div>
 
       <!-- 6. MÉTODOS DE PAGO, TOP SABORES, ROTACIÓN LENTA Y ALERTAS -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? 'block' : 'hidden'}">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         <!-- Desglose de Métodos de Pago del Periodo -->
         <div class="ios-card mb-0">
@@ -4083,8 +4131,10 @@ class AppController {
           `}
         </div>
       </div>
+      </div>
 
       <!-- Menor Rotación y Alertas de Reposición -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block' : 'hidden'}">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         <div class="ios-card mb-0">
           <div class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2.5">
@@ -4135,15 +4185,19 @@ class AppController {
           `}
         </div>
       </div>
+      </div>
 
       <!-- Historial de Ventas Recientes del Periodo -->
-      <div class="mb-4">
-        <div class="flex items-center justify-between mb-2 px-1">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-300">🕒 Últimas Ventas del Periodo</span>
-          <span class="text-xs text-slate-400">${data.recentSales.length} mostradas</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pb-10">
+      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? 'block' : 'hidden'}">
+      <details class="ios-accordion mb-4" open>
+        <summary>
+          <div class="flex items-center justify-between w-full pr-2">
+            <span>🕒 Últimas Ventas del Periodo</span>
+            <span class="text-xs text-slate-400 font-semibold">${data.recentSales.length} mostradas</span>
+          </div>
+        </summary>
+        <div class="ios-accordion-body">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pb-2">
     `;
 
     const whMap = new Map(warehouses.map(w => [w.id, w]));
@@ -4219,6 +4273,8 @@ class AppController {
 
     html += `
         </div>
+        </div>
+      </details>
       </div>
     `;
 
@@ -5593,6 +5649,12 @@ class AppController {
     this.renderAnalyticsView();
   }
 
+  setAnalyticsSubView(subView) {
+    this.analyticsSubView = subView || 'resumen';
+    this._playChime('tap');
+    this.renderAnalyticsView();
+  }
+
   async revertSaleAction(saleId) {
     if (!confirm('¿Deseas anular esta venta? Se devolverá automáticamente el stock a su almacén de origen.')) {
       return;
@@ -5958,14 +6020,16 @@ class AppController {
           </div>
         </div>
 
-        <div class="bg-slate-900/75 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-300 space-y-1.5 leading-relaxed">
-          <div class="font-bold text-emerald-300">📱 Cómo conectar tu iPhone en 20 segundos:</div>
-          <ol class="list-decimal list-inside space-y-1">
-            <li>Descarga gratis la app <strong>ntfy</strong> en la App Store de tu iPhone.</li>
-            <li>Abre <strong>ntfy</strong>, toca el botón <strong>+</strong> y escribe tu canal: <code id="ntfyGuideTopicCode" class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-bold">${this._escapeHtml(ntfy.topic)}</code></li>
-            <li>¡Listo! Toca <strong>"🔔 Probar Notificación"</strong> arriba para comprobar que te vibra el iPhone.</li>
-          </ol>
-        </div>
+        <details class="ios-accordion">
+          <summary>📱 Cómo conectar tu iPhone en 20 segundos</summary>
+          <div class="ios-accordion-body text-[11px] text-slate-300 space-y-1.5 leading-relaxed">
+            <ol class="list-decimal list-inside space-y-1">
+              <li>Descarga gratis la app <strong>ntfy</strong> en la App Store de tu iPhone.</li>
+              <li>Abre <strong>ntfy</strong>, toca el botón <strong>+</strong> y escribe tu canal: <code id="ntfyGuideTopicCode" class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-bold">${this._escapeHtml(ntfy.topic)}</code></li>
+              <li>¡Listo! Toca <strong>"🔔 Probar Notificación"</strong> arriba para comprobar que te vibra el iPhone.</li>
+            </ol>
+          </div>
+        </details>
       </div>
 
       <!-- 2. ACCESO LIMITADO DE TRABAJADORES Y PIN DE JEFE -->
