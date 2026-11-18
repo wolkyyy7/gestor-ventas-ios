@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.1';
-import { AgentInventory } from './agents/AgentInventory.js?v=5.1';
-import { AgentSales } from './agents/AgentSales.js?v=5.1';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.1';
-import { AgentAuth } from './agents/AgentAuth.js?v=5.1';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=5.1';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.1';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=5.1';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.2';
+import { AgentInventory } from './agents/AgentInventory.js?v=5.2';
+import { AgentSales } from './agents/AgentSales.js?v=5.2';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.2';
+import { AgentAuth } from './agents/AgentAuth.js?v=5.2';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=5.2';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.2';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=5.2';
 
-const APP_VERSION = 'v5.1';
+const APP_VERSION = 'v5.2';
 
 class AppController {
   constructor() {
@@ -273,7 +273,25 @@ class AppController {
   _getFlavorVisualTheme(productName = '') {
     const lower = String(productName).toLowerCase();
     const emojiMatch = String(productName).match(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu);
-    const mainEmoji = emojiMatch && emojiMatch.length > 0 ? emojiMatch[0] : '✨';
+    let mainEmoji = emojiMatch && emojiMatch.length > 0 ? emojiMatch[0] : null;
+
+    if (!mainEmoji) {
+      if (lower.includes('juicy peach')) mainEmoji = '🍑';
+      else if (lower.includes('blueberry watermelon')) mainEmoji = '🍉';
+      else if (lower.includes('lemon peach')) mainEmoji = '🍑';
+      else if (lower.includes('dragon')) mainEmoji = '🐉';
+      else if (lower.includes('mixed berries')) mainEmoji = '🫐';
+      else if (lower.includes('love 66') || lower.includes('love')) mainEmoji = '🍈';
+      else if (lower.includes('tropical')) mainEmoji = '🍍';
+      else if (lower.includes('lemon lime')) mainEmoji = '🍋';
+      else if (lower.includes('cola')) mainEmoji = '🥤';
+      else if (lower.includes('energy')) mainEmoji = '⚡';
+      else if (lower.includes('pineapple')) mainEmoji = '🍍';
+      else if (lower.includes('pink lemonade')) mainEmoji = '🌸';
+      else if (lower.includes('strawberry')) mainEmoji = '🍓';
+      else if (lower.includes('coconut') || lower.includes('coco')) mainEmoji = '🥥';
+      else mainEmoji = '✨';
+    }
 
     if (lower.includes('strawberry') || lower.includes('fresa') || lower.includes('dragon')) {
       return {
@@ -6366,7 +6384,7 @@ class AppController {
   }
 
   async resetDemoData() {
-    if (!confirm('¿Reiniciar el catálogo a los 10 sabores oficiales con 10 unidades cada uno en el Almacén Principal? (Se borrarán las ventas, pedidos y reservas actuales tanto en local como en Supabase)')) {
+    if (!confirm('¿Reiniciar el catálogo a los 14 sabores del Pedido #1 (200 uds) en el Almacén Principal? (Se borrarán las ventas, pedidos, trabajadores y reservas actuales tanto en local como en Supabase)')) {
       return;
     }
     try {
@@ -6381,7 +6399,7 @@ class AppController {
         this.scheduleCloudSnapshotPublish();
       }
       this._playChime('success');
-      this.showToast('¡10 Sabores cargados en local y nube!', '✓');
+      this.showToast('¡14 Sabores (200 uds) cargados en local y nube!', '✓');
       await this.switchTab('sales');
       await this.updateHeaderQuickStats();
     } catch (err) {

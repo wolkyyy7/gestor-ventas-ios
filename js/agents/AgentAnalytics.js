@@ -13,7 +13,7 @@
  * 9. Series Temporales Multi-Escala (`timeSeries`) y Ritmo de Venta (`velocityMetrics`)
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.1';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.2';
 
 export class AgentAnalytics {
   /**

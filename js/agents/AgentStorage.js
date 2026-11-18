@@ -1308,37 +1308,33 @@ export class AgentStorage {
   }
 
   /**
-   * Establece el catálogo exacto de los 10 productos oficiales con 10 unidades cada uno en el almacén principal.
+   * Establece el catálogo oficial de 14 sabores (200 unidades totales) en el almacén principal,
+   * eliminando trabajadores secundarios, ventas, reservas, fiados, repartos y liquidaciones anteriores.
    */
   async setNewProductCatalog() {
-    const warehouses = await this.getAllWarehouses();
-    let mainWh = warehouses.find(w => w.id === MAIN_WAREHOUSE_ID);
-    if (!mainWh) {
-      mainWh = this._getDefaultMainWarehouse();
-      await this.saveWarehouse(mainWh);
-    }
-
-    for (const wh of warehouses) {
-      wh.rewardVapersDelivered = 0;
-      wh.cashSettledAmount = 0;
-      await this.saveWarehouse(wh);
-    }
+    const mainWh = this._getDefaultMainWarehouse();
+    mainWh.rewardVapersDelivered = 0;
+    mainWh.cashSettledAmount = 0;
 
     const now = new Date().toISOString();
     const newProducts = [
-      { id: 'flavor_1', name: 'Coco Loco 🥥🌴', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_2', name: 'Strawberry Kiwi 🍓🥝', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_3', name: 'Blueberry Watermelon 🫐🍉', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_4', name: 'Black ice Dragon fruit Strawberry 🫐🧊🐉🍓', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_5', name: 'Love 66 🍈🍉🥭🌿', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_6', name: 'Tropical fruit 🍍🥭🍌🥥', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_7', name: 'Blueberry sour raspberry 🫐🍇🍋', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_8', name: 'Lemon peach passion fruit 🍋🍑🥭', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_9', name: 'Juicy peach ice 🍑💦🧊', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
-      { id: 'flavor_10', name: 'Lemon lime 🍋🍋🟩', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 }
+      { id: 'flavor_1', name: 'Juicy Peach ice', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_2', name: 'Blueberry Watermelon', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 20 },
+      { id: 'flavor_3', name: 'Lemon Peach Passion Fruit', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_4', name: 'Black ice Dragon Fruit Strawberry', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_5', name: 'Mixed Berries', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 20 },
+      { id: 'flavor_6', name: 'Love 66', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 20 },
+      { id: 'flavor_7', name: 'Tropical Fruit', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 20 },
+      { id: 'flavor_8', name: 'Lemon Lime', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 20 },
+      { id: 'flavor_9', name: 'Cola ice', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_10', name: 'Energy Drink', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_11', name: 'Pineapple Coconut', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_12', name: 'Pink Lemonade', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 20 },
+      { id: 'flavor_13', name: 'Strawberry Mango', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 },
+      { id: 'flavor_14', name: 'Coconut Breeze', category: 'Sabores', costPrice: 6.70, sellPrice: 12.00, stock: 10 }
     ].map(p => ({
       ...p,
-      stockByWarehouse: { [MAIN_WAREHOUSE_ID]: 10 },
+      stockByWarehouse: { [MAIN_WAREHOUSE_ID]: p.stock },
       createdAt: now,
       updatedAt: now
     }));
@@ -1348,10 +1344,10 @@ export class AgentStorage {
     const expectedRevenue = newProducts.reduce((s, p) => s + (parseInt(p.stock, 10) || 0) * (parseFloat(p.sellPrice) || 12), 0);
     const initialOrder = {
       id: 'order_1_initial',
-      name: 'Pedido #1 (Inicial)',
+      name: 'Pedido #1',
       status: 'active',
       supplier: 'Proveedor Principal',
-      notes: 'Catálogo inicial reiniciado',
+      notes: 'Pedido inicial (14 sabores · 200 uds)',
       items: newProducts.map(p => ({
         productId: p.id,
         productName: p.name,
@@ -1370,9 +1366,10 @@ export class AgentStorage {
     if (await this._hasOpenDb()) {
       await new Promise((resolve, reject) => {
         const tx = this.db.transaction(
-          ['products', 'sales', 'transfers', 'reservations', 'settlements', 'orders'],
+          ['warehouses', 'products', 'sales', 'transfers', 'reservations', 'settlements', 'orders'],
           'readwrite'
         );
+        tx.objectStore('warehouses').clear();
         tx.objectStore('products').clear();
         tx.objectStore('sales').clear();
         tx.objectStore('transfers').clear();
@@ -1380,6 +1377,7 @@ export class AgentStorage {
         tx.objectStore('settlements').clear();
         tx.objectStore('orders').clear();
 
+        tx.objectStore('warehouses').put(mainWh);
         const prodStore = tx.objectStore('products');
         newProducts.forEach(p => prodStore.put(p));
         tx.objectStore('orders').put(initialOrder);
@@ -1388,6 +1386,7 @@ export class AgentStorage {
         tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
       });
     } else {
+      localStorage.setItem('gv_warehouses', JSON.stringify([mainWh]));
       localStorage.setItem('gv_products', JSON.stringify(newProducts));
       localStorage.setItem('gv_sales', JSON.stringify([]));
       localStorage.setItem('gv_transfers', JSON.stringify([]));
@@ -1396,6 +1395,11 @@ export class AgentStorage {
       localStorage.setItem('gv_orders', JSON.stringify([initialOrder]));
     }
 
+    try {
+      localStorage.removeItem('gv_auth_session_v1');
+    } catch (_) {}
+
+    this._notify('warehouses:changed', { action: 'reset' });
     this._notify('products:changed', { action: 'reset' });
     this._notify('sales:changed', { action: 'reset' });
     this._notify('transfers:changed', { action: 'reset' });
@@ -1408,6 +1412,13 @@ export class AgentStorage {
    * Asegura que existan datos iniciales y ejecuta migraciones transparentes a multi-almacén y v3.
    */
   async _ensureInitialData() {
+    const cleanOrderApplied = await this.getConfig('clean_order_v5_2_applied', false);
+    if (!cleanOrderApplied) {
+      await this.setNewProductCatalog();
+      await this.setConfig('clean_order_v5_2_applied', true, { skipCloudSync: true });
+      return;
+    }
+
     const warehouses = await this.getAllWarehouses();
     const mainWh = warehouses.find(w => w.id === MAIN_WAREHOUSE_ID) || this._getDefaultMainWarehouse();
 

@@ -12,7 +12,7 @@
  * - Tiempo real (vivo): `EventSource('https://ntfy.sh/' + syncTopic + '/sse')`
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.1';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.2';
 
 const DEVICE_ID_STORAGE_KEY = 'gv_device_id';
 const LAST_SNAPSHOT_TS_KEY = 'gv_last_sync_snapshot_ts';
