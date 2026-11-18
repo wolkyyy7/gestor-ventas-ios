@@ -154,14 +154,11 @@ html, body {
    CABECERA SUPERIOR TRASLÚCIDA iOS 27 LIQUID GLASS
    ========================================================================== */
 .ios-header {
-  padding-top: calc(env(safe-area-inset-top, 14px) + 10px);
-  padding-left: max(18px, env(safe-area-inset-left));
-  padding-right: max(18px, env(safe-area-inset-right));
-  padding-bottom: 12px;
-  background: rgba(8, 10, 16, 0.68);
-  backdrop-filter: saturate(190%) blur(28px);
-  -webkit-backdrop-filter: saturate(190%) blur(28px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: calc(env(safe-area-inset-top, 14px) + 12px);
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  padding-bottom: 8px;
+  background: transparent;
   z-index: 40;
   display: flex;
   align-items: center;
@@ -170,16 +167,15 @@ html, body {
 }
 
 .header-wallet-pill {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 9999px;
-  padding: 5px 12px;
+  padding: 6px 12px;
   transition: transform 0.2s var(--ios-spring), background-color 0.2s ease;
 }
 
 .header-wallet-pill:hover {
-  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(255, 255, 255, 0.13);
 }
 
 /* ==========================================================================
@@ -347,9 +343,59 @@ html, body {
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
 }
 
+.ios-glass-card {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 22px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.ios-grouped-list {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 20px;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.ios-grouped-row + .ios-grouped-row,
+.ios-grouped-row + details.ios-grouped-accordion,
+details.ios-grouped-accordion + .ios-grouped-row,
+details.ios-grouped-accordion + details.ios-grouped-accordion {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+details.ios-grouped-accordion > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  user-select: none;
+  transition: background-color 0.18s ease;
+}
+
+details.ios-grouped-accordion > summary:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+details.ios-grouped-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.ios-grouped-accordion > .ios-grouped-accordion-body {
+  padding: 14px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.22);
+}
+
 details.ios-accordion {
-  background: var(--ios-card-bg);
-  border: 1px solid var(--ios-card-border);
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 20px;
   margin-bottom: 12px;
   overflow: hidden;
@@ -360,12 +406,12 @@ details.ios-accordion {
 details.ios-accordion > summary {
   list-style: none;
   cursor: pointer;
-  padding: 14px 16px;
+  padding: 13px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: #f8fafc;
 }
 
@@ -374,18 +420,20 @@ details.ios-accordion > summary::-webkit-details-marker {
 }
 
 details.ios-accordion > summary::after {
-  content: "⌄";
-  font-size: 16px;
+  content: "›";
+  font-size: 17px;
   color: #94a3b8;
+  transform: rotate(90deg);
   transition: transform 0.2s ease;
 }
 
 details.ios-accordion[open] > summary::after {
-  transform: rotate(180deg);
+  transform: rotate(270deg);
 }
 
 details.ios-accordion > .ios-accordion-body {
-  padding: 0 14px 14px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 /* ==========================================================================
@@ -524,30 +572,29 @@ details.ios-accordion > .ios-accordion-body {
   box-shadow: none;
 }
 
-/* Segmented Control iOS 18 */
+/* Segmented Control iOS 27 Liquid Glass */
 .ios-segmented {
   display: flex;
-  background: rgba(11, 17, 30, 0.88);
+  background: rgba(255, 255, 255, 0.085);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 15px;
-  padding: 3.5px;
-  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 16px;
+  padding: 4px;
+  border: none;
   margin-bottom: 14px;
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 
 .segmented-option {
   flex: 1;
   text-align: center;
-  padding: 8.5px 8px;
+  padding: 7px 8px;
   font-size: 12px;
-  font-weight: 600;
-  color: #8b9bb4;
-  border-radius: 11.5px;
+  font-weight: 500;
+  color: #94a3b8;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.24s var(--ios-spring);
-  border: 1px solid transparent;
+  transition: all 0.22s var(--ios-spring);
+  border: none;
   background: transparent;
   display: flex;
   align-items: center;
@@ -561,24 +608,21 @@ details.ios-accordion > .ios-accordion-body {
 }
 
 .segmented-option.active {
-  background: linear-gradient(145deg, rgba(35, 49, 76, 0.95), rgba(24, 34, 54, 0.95));
+  background: rgba(255, 255, 255, 0.16);
   color: #ffffff;
-  font-weight: 700;
-  border-color: rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 /* ==========================================================================
-   BOTTOM SHEETS Y MODALES NATIVOS iOS 18
+   BOTTOM SHEETS Y MODALES NATIVOS iOS 27
    ========================================================================== */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(2, 5, 14, 0.72);
-  backdrop-filter: saturate(160%) blur(14px);
-  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 100;
   display: flex;
   align-items: flex-end;
@@ -587,7 +631,7 @@ details.ios-accordion > .ios-accordion-body {
   visibility: hidden;
   pointer-events: none;
   overscroll-behavior: contain;
-  transition: opacity 0.28s var(--ios-spring), visibility 0.28s ease;
+  transition: opacity 0.22s ease, visibility 0.22s ease;
 }
 
 .modal-overlay.active {
@@ -597,22 +641,20 @@ details.ios-accordion > .ios-accordion-body {
 }
 
 .modal-sheet {
-  background: linear-gradient(180deg, rgba(20, 29, 48, 0.96) 0%, rgba(10, 15, 28, 0.98) 100%);
-  backdrop-filter: saturate(200%) blur(32px);
-  -webkit-backdrop-filter: saturate(200%) blur(32px);
+  background: rgba(22, 25, 33, 0.94);
+  backdrop-filter: saturate(180%) blur(32px);
+  -webkit-backdrop-filter: saturate(180%) blur(32px);
   width: 100%;
   max-width: 100%;
-  border-top-left-radius: 30px;
-  border-top-right-radius: 30px;
-  padding: 16px 18px max(26px, env(safe-area-inset-bottom)) 18px;
+  border-top-left-radius: 32px;
+  border-top-right-radius: 32px;
+  padding: 12px 20px max(28px, env(safe-area-inset-bottom)) 20px;
   max-height: 91dvh;
   overflow-y: auto;
-  box-shadow:
-    0 -16px 50px rgba(0, 0, 0, 0.78),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 -16px 50px rgba(0, 0, 0, 0.65);
   transform: translateY(102%);
-  transition: transform 0.38s var(--ios-spring);
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  transition: transform 0.28s var(--ios-spring);
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .modal-overlay.active .modal-sheet {

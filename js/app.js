@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.0';
-import { AgentInventory } from './agents/AgentInventory.js?v=5.0';
-import { AgentSales } from './agents/AgentSales.js?v=5.0';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.0';
-import { AgentAuth } from './agents/AgentAuth.js?v=5.0';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=5.0';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.0';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=5.0';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.1';
+import { AgentInventory } from './agents/AgentInventory.js?v=5.1';
+import { AgentSales } from './agents/AgentSales.js?v=5.1';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.1';
+import { AgentAuth } from './agents/AgentAuth.js?v=5.1';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=5.1';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.1';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=5.1';
 
-const APP_VERSION = 'v5.0';
+const APP_VERSION = 'v5.1';
 
 class AppController {
   constructor() {
@@ -204,11 +204,11 @@ class AppController {
 
     if (roleBadge) {
       if (isWorker) {
-        roleBadge.textContent = `👤 ${session.workerName || session.warehouseName}`;
-        roleBadge.className = 'btn-pressable px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-400/30 text-[10px] font-bold text-indigo-200 tracking-tight whitespace-nowrap';
+        roleBadge.textContent = session.workerName || session.warehouseName || 'Trabajador';
+        roleBadge.className = 'btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 hover:bg-indigo-500/30 transition whitespace-nowrap';
       } else {
-        roleBadge.textContent = '👑 Jefe';
-        roleBadge.className = 'btn-pressable px-2 py-0.5 rounded-full bg-emerald-500/12 border border-emerald-500/25 text-[10px] font-bold text-emerald-300 tracking-tight whitespace-nowrap';
+        roleBadge.textContent = 'Jefe';
+        roleBadge.className = 'btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 border border-white/15 text-slate-200 hover:bg-white/15 transition whitespace-nowrap';
       }
     }
 
@@ -434,7 +434,7 @@ class AppController {
     if (navTitleEl) {
       const titles = {
         sales: 'Vender',
-        inventory: 'Inventario',
+        inventory: 'Almacén',
         analytics: this.authAgent.isWorker() ? 'Mis Ventas' : 'Métricas',
         settings: 'Ajustes'
       };
@@ -547,147 +547,100 @@ class AppController {
     }
 
     let html = `
-      <div class="mb-3.5">
-        <!-- Barra Superior de Acceso Rápido: Reservas y Fiados por Cobrar -->
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div class="space-y-3 mb-4">
+        <!-- Search Bar iOS 27 -->
+        <div class="relative">
+          <input 
+            type="text" 
+            id="salesSearchInput" 
+            value="${this._escapeHtml(this.salesSearchQuery || '')}"
+            placeholder="Buscar sabor o reserva" 
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck="false"
+            class="w-full bg-white/10 border border-white/10 rounded-2xl px-4 py-2.5 pr-9 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-white/25"
+          />
+          <button type="button" id="btnClearSalesSearch" class="${this.salesSearchQuery ? '' : 'hidden'} absolute right-3.5 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
+        </div>
+
+        <!-- Compact Quick Bar: Warehouse Pills + Pending Badges + Actions -->
+        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+          ${isWorker ? `
+            <span class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-slate-950 whitespace-nowrap">
+              ${this._escapeHtml(activeWhObj?.name || this.authAgent.getSession().warehouseName)}
+            </span>
+          ` : warehouses.map(wh => {
+            const isSelected = wh.id === this.activeSaleWarehouseId;
+            const shortName = wh.isMain ? 'Principal' : (wh.workerName || wh.name);
+            return `
+              <button 
+                type="button"
+                onclick="window.app.setSaleWarehouse('${wh.id}')"
+                class="btn-pressable px-3.5 py-1.5 rounded-full text-xs whitespace-nowrap transition ${
+                  isSelected
+                    ? 'bg-white text-slate-950 font-semibold'
+                    : 'bg-white/10 text-slate-300 border border-white/10 font-medium hover:bg-white/15'
+                }"
+              >${this._escapeHtml(shortName)}</button>
+            `;
+          }).join('')}
+
           <button 
             type="button"
             onclick="window.app.openReservationModal(null, '${this.activeSaleWarehouseId}')"
-            class="btn-pressable flex-1 py-2 px-3 rounded-xl bg-purple-950/35 hover:bg-purple-900/45 border border-purple-500/40 text-purple-200 text-xs font-bold flex items-center justify-center gap-1.5"
-          >
-            <span>📌</span>
-            <span>Reservas Activas (${activeReservations.length})</span>
-          </button>
+            class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-purple-400/15 text-purple-200 border border-purple-400/20 whitespace-nowrap"
+          >${activeReservations.length} reservas</button>
 
           <button 
             type="button"
             onclick="window.app.openSalesHistoryModal()"
-            class="btn-pressable flex-1 py-2 px-3 rounded-xl ${
+            class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium ${
               pendingSales.length > 0
-                ? 'bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/50 text-amber-300'
-                : 'bg-slate-900/80 hover:bg-slate-800 border border-slate-700/70 text-slate-300'
-            } text-xs font-bold flex items-center justify-center gap-1.5"
-          >
-            <span>⏳</span>
-            <span>Fiados por cobrar: ${totalPendingDebtAmount.toFixed(2)}€ (${pendingSales.length})</span>
-          </button>
-        </div>
+                ? 'bg-amber-400/15 text-amber-200 border border-amber-400/20'
+                : 'bg-white/10 text-slate-300 border border-white/10'
+            } whitespace-nowrap tabular-nums"
+          >${totalPendingDebtAmount.toFixed(0)} € fiados</button>
 
-        <!-- Selector Horizontal de Almacén de Venta (O Banner de Modo Trabajador) -->
-        ${isWorker ? `
-          <div class="ios-card ios-card-glow-indigo p-3 mb-3 flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <span class="text-xl">${activeWhObj?.icon || '👤'}</span>
-              <div class="min-w-0">
-                <div class="text-[10px] uppercase tracking-wider text-indigo-300 font-bold">Modo Trabajador • Solo tu almacén</div>
-                <div class="text-xs font-black text-white truncate">${this._escapeHtml(activeWhObj?.name || this.authAgent.getSession().warehouseName)}</div>
-              </div>
-            </div>
+          <button 
+            type="button"
+            onclick="window.app.openSalesHistoryModal()"
+            class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 text-slate-300 border border-white/10 whitespace-nowrap"
+          >Historial</button>
+
+          ${isWorker ? `
             <button
               type="button"
               onclick="window.app.openPinAuthModal()"
-              class="btn-pressable px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/15 text-[11px] font-bold flex-shrink-0"
-            >🔐 PIN Jefe</button>
-          </div>
-        ` : `
-          <div class="mb-3">
-            <div class="flex items-center justify-between text-[11px] text-slate-400 px-1 mb-1.5">
-              <span class="font-semibold uppercase tracking-wider text-slate-300">📍 Vendiendo desde:</span>
-              <button 
-                onclick="window.app.openWarehouseModal()"
-                class="text-emerald-400 hover:text-emerald-300 font-bold text-[11px] flex items-center gap-1"
-              >
-                <span>+ Nuevo Almacén / Trabajador</span>
-              </button>
-            </div>
-            <div class="warehouse-pills-bar no-scrollbar">
-              ${warehouses.map(wh => {
-                const isSelected = wh.id === this.activeSaleWarehouseId;
-                const wv = whValuationMap.get(wh.id);
-                const avail = wv ? wv.availableUnits : 0;
-                return `
-                  <button 
-                    type="button"
-                    onclick="window.app.setSaleWarehouse('${wh.id}')"
-                    class="warehouse-pill btn-pressable ${isSelected ? 'active' : ''}"
-                  >
-                    <span>${wh.icon || '🏠'}</span>
-                    <span>${this._escapeHtml(wh.name)}</span>
-                    <span class="px-1.5 py-0.5 rounded-full text-[10px] ${
-                      isSelected ? 'bg-emerald-950/80 text-emerald-300' : 'bg-slate-800 text-slate-400'
-                    }">${avail} libres</span>
-                  </button>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        `}
+              class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 text-slate-300 border border-white/10 whitespace-nowrap"
+            >PIN Jefe</button>
+          ` : `
+            <button 
+              type="button"
+              onclick="window.app.openWarehouseModal()"
+              class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 text-emerald-300 border border-white/10 whitespace-nowrap"
+            >+ Almacén</button>
+          `}
+        </div>
 
-        <!-- Banner de Deshacer / Repetir Última Venta -->
+        <!-- Banner compacto de Última Venta (si acaba de cobrar) -->
         ${this.lastCompletedSale ? `
-          <div class="ios-card ${this.lastCompletedSale.paymentStatus === 'pending' ? 'ios-card-glow-amber' : 'ios-card-glow-emerald'} p-3 mb-3 flex items-center justify-between animate-fade-in">
-            <div class="pr-2">
-              <div class="flex flex-wrap items-center gap-1.5 mb-1">
-                <span class="w-2 h-2 rounded-full ${this.lastCompletedSale.paymentStatus === 'pending' ? 'bg-amber-400' : 'bg-emerald-400'} inline-block animate-pulse"></span>
-                <span class="text-[10px] ${this.lastCompletedSale.paymentStatus === 'pending' ? 'text-amber-300' : 'text-emerald-300'} font-bold uppercase tracking-wider">
-                  ${this.lastCompletedSale.paymentStatus === 'pending' ? '⏳ Venta Fiada' : `Última Venta • ${this.lastCompletedSale.paymentMethod}`}
-                </span>
-                <span class="badge badge-warehouse text-[10px]">${lastSaleWhBadge}</span>
-              </div>
-              <div class="text-xs font-bold text-white leading-tight">
-                ${this.lastCompletedSale.quantity}x ${this._escapeHtml(this.lastCompletedSale.productName)} • ${this.lastCompletedSale.grossTotal.toFixed(2)}€
-              </div>
-              <div class="text-[10px] text-emerald-400 font-medium mt-0.5">
-                ${isWorker ? '' : `Beneficio: +${this.lastCompletedSale.netProfit.toFixed(2)}€`}
-                ${this.lastCompletedSale.buyerName ? `${isWorker ? '' : ' • '}👤 ${this._escapeHtml(this.lastCompletedSale.buyerName)}` : ''}
-                ${this.lastCompletedSale.notes ? ` • 📝 ${this._escapeHtml(this.lastCompletedSale.notes)}` : ''}
-              </div>
+          <div class="ios-glass-card px-3.5 py-2.5 flex items-center justify-between gap-2 animate-fade-in">
+            <div class="min-w-0 pr-2 text-xs">
+              <span class="font-semibold text-white">${this.lastCompletedSale.quantity}x ${this._escapeHtml(this.lastCompletedSale.productName)}</span>
+              <span class="text-slate-400 ml-1 tabular-nums">· ${this.lastCompletedSale.grossTotal.toFixed(2)} € (${this.lastCompletedSale.paymentStatus === 'pending' ? 'Fiado' : this.lastCompletedSale.paymentMethod})</span>
             </div>
             <button 
               onclick="window.app.undoAndRepeatSale('${this.lastCompletedSale.id}')"
-              class="btn-pressable bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/50 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1"
-            >
-              <span>↩</span> Deshacer
-            </button>
+              class="btn-pressable px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[11px] font-semibold whitespace-nowrap"
+            >Deshacer</button>
           </div>
         ` : ''}
 
-        <!-- Buscador rápido y Botón de Historial / Anular -->
-        <div class="flex items-center gap-2 mb-2.5">
-          <div class="relative flex-1">
-            <input 
-              type="text" 
-              id="salesSearchInput" 
-              value="${this._escapeHtml(this.salesSearchQuery || '')}"
-              placeholder="🔍 Buscar sabor o cliente con reserva..." 
-              autocomplete="off"
-              autocorrect="off"
-              spellcheck="false"
-              class="w-full bg-slate-900/90 text-white placeholder-slate-400 pl-4 pr-9 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:border-emerald-500 text-sm"
-            />
-            <button type="button" id="btnClearSalesSearch" class="${this.salesSearchQuery ? '' : 'hidden'} absolute right-3 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
-          </div>
-          <button 
-            onclick="window.app.openSalesHistoryModal()"
-            class="btn-pressable bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shadow-sm"
-            title="Ver ventas, cobrar fiados y cancelar ventas"
-          >
-            <span>🕒</span> Historial
-          </button>
-        </div>
-
-        <div class="flex items-center justify-between text-xs text-slate-400 px-1">
-          <span>
-            Libres en <strong class="text-white">${activeWhObj ? `${activeWhObj.icon} ${this._escapeHtml(activeWhObj.name)}` : 'Almacén'}</strong>:
-            <strong class="text-emerald-400">${activeWhUnits} uds</strong>
-            ${activeWhReserved > 0 ? `<span class="text-purple-300 ml-1">(📌 ${activeWhReserved} res.)</span>` : ''}
-          </span>
-          <span id="salesAvailableCount" class="font-medium text-emerald-400">${availableInActiveCount} sabores libres</span>
-        </div>
+        <span id="salesAvailableCount" class="hidden">${availableInActiveCount} sabores libres</span>
       </div>
 
-      <!-- Cuadrícula de productos listos para venta rápida -->
-      <div id="salesProductGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-8">
+      <!-- Cuadrícula limpia de productos estilo iOS 27 -->
+      <div id="salesProductGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 pb-8">
         ${this._buildSalesProductGridHtml(products, isWorker, hasMultipleWarehouses)}
       </div>
     `;
@@ -751,69 +704,44 @@ class AppController {
       return `
         <div 
           style="animation-delay: ${animDelay}ms"
-          class="ios-card product-pos-card btn-pressable flex flex-col justify-between cursor-pointer transition-all border mb-0 ${
+          class="ios-glass-card p-3.5 text-left flex flex-col justify-between gap-3 hover:bg-white/10 transition cursor-pointer btn-pressable ${
             (isWorker ? isOutHere : isOutEverywhere)
-              ? 'opacity-45 border-rose-900/40 bg-slate-900/50 pointer-events-none'
+              ? 'opacity-40 pointer-events-none'
               : (isOutHere || isOnlyReservedHere)
-                ? 'opacity-80 border-amber-500/35 bg-slate-900/75 hover:border-amber-400/60'
-                : 'hover:border-emerald-500/60'
+                ? 'opacity-75 border-amber-400/30'
+                : ''
           }"
           onclick="window.app.openQuickSaleSheet('${p.id}')"
         >
-          <div>
-            <div class="flex items-start justify-between gap-2 mb-2.5">
-              <div class="flavor-orb" style="background: ${theme.orbBg};">
-                <span>${theme.emoji}</span>
-              </div>
-              <div class="flex flex-col items-end gap-1">
-                <span class="badge ${
-                  availStock <= 0
-                    ? 'badge-low-stock'
-                    : isLowHere ? 'badge-low-stock' : 'badge-ok-stock'
-                }">
-                  ${availStock <= 0 ? (whReserved > 0 ? '0 libres' : '0 uds') : `${availStock} uds`}
-                </span>
-                ${hasMultipleWarehouses ? `
-                  <span class="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-white/[0.04] text-slate-400 border border-white/10 tabular-nums" title="Stock global en todos los almacenes">
-                    🌐 ${globalStock} tot.
-                  </span>
-                ` : ''}
-              </div>
+          <div class="flex items-start justify-between gap-1">
+            <span class="text-2xl leading-none">${theme.emoji}</span>
+            <div class="text-right">
+              <span class="text-xs font-semibold tabular-nums ${availStock <= 4 ? 'text-rose-400' : 'text-emerald-400'}">
+                ${availStock} uds
+              </span>
+              ${hasMultipleWarehouses && globalStock !== availStock ? `
+                <div class="text-[10px] text-slate-500 tabular-nums" title="Stock global">🌐 ${globalStock}</div>
+              ` : ''}
             </div>
-
-            <h4 class="font-bold text-white text-[14px] line-clamp-2 leading-snug tracking-tight">${this._escapeHtml(p.name)}</h4>
-
-            ${whReserved > 0 ? `
-              <div 
-                onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
-                class="mt-2 px-2 py-0.5 rounded-lg bg-purple-950/60 border border-purple-500/40 text-[10px] text-purple-300 font-semibold truncate"
-                title="Reservado para: ${this._escapeHtml(reservedCustomers)}"
-              >
-                📌 ${whReserved} res.: ${this._escapeHtml(reservedCustomers || 'Cliente')}
-              </div>
-            ` : ''}
-
-            ${!isWorker && isOutHere && !isOutEverywhere ? `
-              <div class="text-[10px] text-amber-400 font-semibold mt-1">
-                Disponible en otro almacén (${globalStock} uds)
-              </div>
-            ` : ''}
           </div>
 
-          <div class="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between gap-1.5">
-            <div>
-              <div class="text-[17px] font-black text-white leading-none tabular-nums">${p.sellPrice.toFixed(2)}€</div>
-              ${isWorker ? `<div class="text-[10px] text-slate-400 font-semibold mt-0.5">PVP</div>` : `<div class="text-[10px] text-emerald-400 font-extrabold mt-0.5 tabular-nums">+${profit}€ benef.</div>`}
-            </div>
-            <div class="flex items-center gap-1">
-              <button 
-                type="button"
-                onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
-                class="btn-pressable px-2 py-1.5 rounded-xl bg-slate-900/90 hover:bg-purple-950/50 text-purple-300 border border-purple-500/35 text-[10px] font-bold flex items-center gap-1"
-                title="Reservar este sabor a un cliente"
-              >
-                <span>📌</span> Res.
-              </button>
+          <div>
+            <div class="text-sm font-semibold text-white leading-snug line-clamp-2">${this._escapeHtml(p.name)}</div>
+            <div class="flex items-center justify-between mt-1.5">
+              <span class="text-xs font-medium text-slate-300 tabular-nums">${p.sellPrice.toFixed(2)} €</span>
+              ${whReserved > 0 ? `
+                <span 
+                  onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
+                  class="text-xs text-purple-300 font-medium hover:underline"
+                  title="Reservado para: ${this._escapeHtml(reservedCustomers)}"
+                >${whReserved} res.</span>
+              ` : `
+                <span 
+                  onclick="event.stopPropagation(); window.app.openReservationModal('${p.id}', '${this.activeSaleWarehouseId}')"
+                  class="text-[11px] text-slate-500 hover:text-purple-300 transition"
+                  title="Reservar a un cliente"
+                >Reservar</span>
+              `}
             </div>
           </div>
         </div>
@@ -973,8 +901,10 @@ class AppController {
 
     if (modalTitle) modalTitle.textContent = p.name;
     if (modalStock) {
-      modalStock.innerHTML = `${currentWh.icon || '🏠'} <strong>${this._escapeHtml(currentWh.name)}</strong>: <strong>${whAvailableStock} libres</strong>${whReserved > 0 ? ` (📌 ${whReserved} res. / ${whPhysicalStock} fís.)` : ''}`;
-      modalStock.className = `text-xs ${whAvailableStock <= 3 ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-medium'}`;
+      const whShort = currentWh.isMain ? 'Almacén Principal' : currentWh.name;
+      const profitInfo = isWorker ? '' : ` · Beneficio ${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(2)} €`;
+      modalStock.textContent = `${whShort} · ${whAvailableStock} libres${whReserved > 0 ? ` (${whReserved} res.)` : ''}${profitInfo}`;
+      modalStock.className = 'text-xs text-slate-400';
     }
     if (modalGlobalHint) {
       modalGlobalHint.textContent = isWorker ? '' : `Global: ${globalStock} uds`;
@@ -1017,7 +947,7 @@ class AppController {
 
     if (displayProfit) {
       displayProfit.textContent = `${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(2)}€`;
-      displayProfit.className = netProfit >= 0 ? 'text-emerald-400 font-bold text-lg' : 'text-rose-400 font-bold text-lg';
+      displayProfit.className = netProfit >= 0 ? 'text-emerald-400 font-bold text-sm tabular-nums' : 'text-rose-400 font-bold text-sm tabular-nums';
     }
     if (displayRemaining) {
       displayRemaining.textContent = remainingPhysical < 0
@@ -1035,24 +965,26 @@ class AppController {
     if (btnConfirm) {
       btnConfirm.disabled = remainingPhysical < 0 || qty <= 0;
       if (this.salePaymentStatus === 'pending') {
-        btnConfirm.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
-        btnConfirm.innerHTML = `<span>⏳ Registrar Fiado ${totalGross.toFixed(2)}€ (Pendiente)</span>`;
+        btnConfirm.className = 'w-full py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm shadow-lg shadow-amber-500/20 mb-1.5 btn-pressable';
+        btnConfirm.innerHTML = `<span>Registrar fiado ${totalGross.toFixed(2)} €</span>`;
+        const moreDetails = document.getElementById('modalSaleMoreOptions');
+        if (moreDetails) moreDetails.open = true;
       } else {
-        btnConfirm.style.background = '';
-        btnConfirm.innerHTML = `<span>Cobrar ${totalGross.toFixed(2)}€ (${this.salePaymentMethod}) • ${currentWh.icon || '🏠'}</span>`;
+        btnConfirm.className = 'w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm shadow-lg shadow-emerald-500/20 mb-1.5 btn-pressable';
+        btnConfirm.innerHTML = `<span>Cobrar ${totalGross.toFixed(2)} €</span>`;
       }
     }
 
-    // Actualizar botones de Método de Pago
+    // Actualizar botones de Método de Pago estilo píldora iOS 27
     const btnCard = document.getElementById('btnPayCard');
     const btnCash = document.getElementById('btnPayCash');
     if (btnCard && btnCash) {
       if (this.salePaymentMethod === 'Efectivo') {
-        btnCash.className = 'flex-1 py-2 px-2.5 rounded-xl border-2 border-emerald-500 bg-emerald-500/20 text-white font-semibold text-xs flex items-center justify-center gap-1 transition-all';
-        btnCard.className = 'flex-1 py-2 px-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium text-xs flex items-center justify-center gap-1 transition-all';
+        btnCash.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-white/20 text-white transition';
+        btnCard.className = 'px-3 py-1 rounded-full text-xs font-medium bg-white/5 text-slate-400 hover:text-white transition';
       } else {
-        btnCard.className = 'flex-1 py-2 px-2.5 rounded-xl border-2 border-indigo-500 bg-indigo-500/20 text-white font-semibold text-xs flex items-center justify-center gap-1 transition-all';
-        btnCash.className = 'flex-1 py-2 px-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-400 font-medium text-xs flex items-center justify-center gap-1 transition-all';
+        btnCard.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-white/20 text-white transition';
+        btnCash.className = 'px-3 py-1 rounded-full text-xs font-medium bg-white/5 text-slate-400 hover:text-white transition';
       }
     }
 
@@ -1539,28 +1471,14 @@ class AppController {
     });
 
     const subViewBar = `
-      <!-- Sub-navegación de Inventario: Stock | Reservas | Mensaje ${isWorker ? '' : '| Repartir'} -->
+      <!-- Sub-navegación de Almacén estilo iOS 27: Stock | Reparto | Reservas | Mensaje -->
       <div class="ios-segmented mb-3.5">
         <button 
           type="button"
           class="segmented-option ${this.inventorySubView === 'stock' ? 'active' : ''}"
           onclick="window.app.switchInventorySubView('stock')"
         >
-          <span>📦</span> <span>${isWorker ? 'Mi Stock' : 'Stock'}</span>
-        </button>
-        <button 
-          type="button"
-          class="segmented-option ${this.inventorySubView === 'reservations' ? 'active' : ''}"
-          onclick="window.app.switchInventorySubView('reservations')"
-        >
-          <span>📌</span> <span>Reservas (${activeReservations.length})</span>
-        </button>
-        <button 
-          type="button"
-          class="segmented-option ${this.inventorySubView === 'message' ? 'active' : ''}"
-          onclick="window.app.switchInventorySubView('message')"
-        >
-          <span>📋</span> <span>Mensaje</span>
+          <span>${isWorker ? 'Mi Stock' : 'Stock'}</span>
         </button>
         ${isWorker ? '' : `
           <button 
@@ -1568,9 +1486,23 @@ class AppController {
             class="segmented-option ${this.inventorySubView === 'transfer' ? 'active' : ''}"
             onclick="window.app.switchInventorySubView('transfer')"
           >
-            <span>🚚</span> <span>Repartir</span>
+            <span>Reparto</span>
           </button>
         `}
+        <button 
+          type="button"
+          class="segmented-option ${this.inventorySubView === 'reservations' ? 'active' : ''}"
+          onclick="window.app.switchInventorySubView('reservations')"
+        >
+          <span>Reservas${activeReservations.length > 0 ? ` (${activeReservations.length})` : ''}</span>
+        </button>
+        <button 
+          type="button"
+          class="segmented-option ${this.inventorySubView === 'message' ? 'active' : ''}"
+          onclick="window.app.switchInventorySubView('message')"
+        >
+          <span>Mensaje</span>
+        </button>
       </div>
     `;
 
@@ -1651,261 +1583,193 @@ class AppController {
       : null;
 
     let html = isWorker ? '' : `
-      <!-- Tarjeta de Pedido Activo y Botón de Nuevo Pedido / Recuento -->
-      <div class="ios-card p-3 mb-3.5 border-indigo-500/30 bg-gradient-to-r from-indigo-950/35 to-slate-900/90 flex flex-wrap items-center justify-between gap-2.5">
+      <!-- Tarjeta limpia de Pedido Activo estilo iOS 27 -->
+      <div class="ios-glass-card p-4 mb-3.5 flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <div class="text-[10px] uppercase tracking-wider text-indigo-300 font-bold flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full ${activeOrder?.status === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
-            <span>${activeOrder?.status === 'active' ? 'Pedido Activo en Curso' : 'Sin Pedido Activo'}</span>
-          </div>
-          <div class="text-sm font-black text-white truncate mt-0.5">
-            📦 ${this._escapeHtml(activeOrder ? activeOrder.name : 'Pedido Inicial')}
-            ${activeOrder ? `<span class="text-xs font-semibold text-slate-400 ml-1">(${activeOrder.totalUnits} uds recibidas)</span>` : ''}
+          <div class="text-xs text-slate-400">Pedido activo</div>
+          <div class="text-sm font-semibold text-white truncate mt-0.5">
+            ${this._escapeHtml(activeOrder ? activeOrder.name : 'Pedido Inicial')}
+            ${activeOrder ? `<span class="text-xs font-normal text-slate-400 ml-1">(${activeOrder.totalUnits} uds)</span>` : ''}
           </div>
         </div>
-        <div class="flex items-center gap-1.5">
-          <button
-            type="button"
-            onclick="window.app.openNewOrderModal()"
-            class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-lg shadow-emerald-900/30 flex items-center gap-1.5"
-          >
-            <span>📦</span> Nuevo Pedido / Recuento
-          </button>
-          <button
-            type="button"
-            onclick="window.app.switchTab('analytics')"
-            class="btn-pressable bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/35 text-xs font-bold px-2.5 py-2 rounded-xl"
-            title="Ver métricas por pedido"
-          >📊 Pedidos</button>
-        </div>
+        <button
+          type="button"
+          onclick="window.app.openNewOrderModal()"
+          class="btn-pressable px-3.5 py-2 rounded-full bg-white text-slate-950 text-xs font-semibold whitespace-nowrap flex-shrink-0"
+        >Nuevo pedido</button>
       </div>
 
-      <!-- Barra de Espacios de Almacenes (General, Principal y Casas de Trabajadores) -->
-      <div class="mb-3.5">
-        <div class="flex items-center justify-between text-[11px] text-slate-400 px-1 mb-1.5">
-          <span class="font-bold uppercase tracking-wider text-slate-300">🏢 Espacios de Almacén:</span>
-          <button 
-            onclick="window.app.openStockMessageForWarehouse('${this.selectedInventoryWarehouse === 'all' ? MAIN_WAREHOUSE_ID : this.selectedInventoryWarehouse}')"
-            class="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1"
-          >
-            <span>📋 Copiar Mensaje de Stock</span>
-          </button>
-        </div>
+      <!-- Barra de píldoras de Almacenes -->
+      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 mb-3">
+        <button 
+          type="button"
+          onclick="window.app.setInventoryWarehouse('all')"
+          class="btn-pressable px-3.5 py-1.5 rounded-full text-xs whitespace-nowrap transition ${
+            this.selectedInventoryWarehouse === 'all'
+              ? 'bg-white text-slate-950 font-semibold'
+              : 'bg-white/10 text-slate-300 border border-white/10 font-medium'
+          }"
+        >Todos (${globalTotalUnits})</button>
 
-        <div class="warehouse-pills-bar no-scrollbar">
-          <button 
-            type="button"
-            onclick="window.app.setInventoryWarehouse('all')"
-            class="warehouse-pill btn-pressable ${this.selectedInventoryWarehouse === 'all' ? 'active-indigo' : ''}"
-          >
-            <span>🌐</span>
-            <span>General (Todos)</span>
-            <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-900/90 text-indigo-300">${globalTotalUnits} uds</span>
-          </button>
+        ${(valuation.byWarehouse || []).map(wh => {
+          const isSel = this.selectedInventoryWarehouse === wh.warehouseId;
+          const shortName = wh.isMain ? 'Principal' : (wh.workerName || wh.name);
+          return `
+            <button 
+              type="button"
+              onclick="window.app.setInventoryWarehouse('${wh.warehouseId}')"
+              class="btn-pressable px-3.5 py-1.5 rounded-full text-xs whitespace-nowrap transition ${
+                isSel
+                  ? 'bg-white text-slate-950 font-semibold'
+                  : 'bg-white/10 text-slate-300 border border-white/10 font-medium'
+              }"
+            >${this._escapeHtml(shortName)} (${wh.totalUnits})</button>
+          `;
+        }).join('')}
 
-          ${(valuation.byWarehouse || []).map(wh => {
-            const isSel = this.selectedInventoryWarehouse === wh.warehouseId;
-            return `
-              <button 
-                type="button"
-                onclick="window.app.setInventoryWarehouse('${wh.warehouseId}')"
-                class="warehouse-pill btn-pressable ${isSel ? 'active' : ''}"
-              >
-                <span>${wh.icon || '🏠'}</span>
-                <span>${this._escapeHtml(wh.name)}</span>
-                <span class="px-1.5 py-0.5 rounded-full text-[10px] ${
-                  isSel ? 'bg-emerald-950 text-emerald-300' : 'bg-slate-800 text-slate-400'
-                }">${wh.totalUnits} uds</span>
-              </button>
-            `;
-          }).join('')}
+        <button 
+          type="button"
+          onclick="window.app.openWarehouseModal()"
+          class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 text-emerald-300 border border-white/10 whitespace-nowrap"
+        >+ Almacén</button>
 
-          <button 
-            type="button"
-            onclick="window.app.openWarehouseModal()"
-            class="warehouse-pill btn-pressable border-dashed border-emerald-500/50 text-emerald-300 bg-emerald-950/20"
-          >
-            <span>+</span>
-            <span>Almacén / Trabajador</span>
-          </button>
-        </div>
+        <button 
+          type="button"
+          onclick="window.app.openProductModal()"
+          class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 text-indigo-300 border border-white/10 whitespace-nowrap"
+        >+ Sabor</button>
       </div>
     `;
 
-    // Cabecera según si está seleccionado "General (Todos)" o un Almacén específico
+    // Desplegable con la Valoración de Inventario y Resumen por Ubicación
     if (this.selectedInventoryWarehouse === 'all') {
       html += `
-        <!-- Valoración Global de Todos los Almacenes -->
-        <div class="ios-card ios-card-glow-indigo mb-3.5">
-          <div class="flex items-center justify-between mb-2.5">
-            <div>
-              <div class="text-[11px] uppercase tracking-wider text-indigo-300 font-bold">🌐 Valoración Global de Inventario</div>
-              <div class="text-xs text-slate-400">${warehouses.length} ${warehouses.length === 1 ? 'almacén activo' : 'almacenes activos'} • ${valuation.totalProducts} sabores</div>
+        <details class="ios-accordion mb-3.5">
+          <summary>
+            <span>Valoración global (${valuation.totalStockUnits} uds · ${valuation.totalRetailValuation.toFixed(0)} € PVP)</span>
+          </summary>
+          <div class="ios-accordion-body space-y-3">
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="bg-white/5 p-2.5 rounded-xl border border-white/10">
+                <div class="text-[10px] text-slate-400">Stock Global</div>
+                <div class="text-base font-bold text-white tabular-nums">${valuation.totalStockUnits} uds</div>
+                <div class="text-[9px] text-slate-400">${valuation.productsWithStock} con stock</div>
+              </div>
+              <div class="bg-white/5 p-2.5 rounded-xl border border-white/10">
+                <div class="text-[10px] text-slate-400">Valor Coste</div>
+                <div class="text-base font-bold text-slate-200 tabular-nums">${valuation.totalCostValuation.toFixed(2)}€</div>
+                <div class="text-[9px] text-slate-500">Inversión</div>
+              </div>
+              <div class="bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-400/25">
+                <div class="text-[10px] text-emerald-300">Valor PVP</div>
+                <div class="text-base font-bold text-emerald-300 tabular-nums">${valuation.totalRetailValuation.toFixed(2)}€</div>
+                <div class="text-[9px] text-emerald-400 font-semibold tabular-nums">+${valuation.potentialGrossProfit.toFixed(2)}€ benef.</div>
+              </div>
             </div>
-            <div class="flex gap-1.5">
-              <button 
-                onclick="window.app.openStockMessageForWarehouse('${MAIN_WAREHOUSE_ID}')"
-                class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1"
-              >
-                <span>📋</span> Mensaje Stock
-              </button>
-              <button 
-                onclick="window.app.switchInventorySubView('transfer')"
-                class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1"
-              >
-                <span>🚚</span> Repartir
-              </button>
-            </div>
-          </div>
 
-          <div class="grid grid-cols-3 gap-2 text-center mb-3">
-            <div class="bg-slate-900/70 p-2.5 rounded-xl border border-slate-700/50">
-              <div class="text-[10px] text-slate-400">Stock Global</div>
-              <div class="text-base font-black text-white">${valuation.totalStockUnits} uds</div>
-              <div class="text-[9px] text-slate-400">${valuation.productsWithStock} con stock</div>
-            </div>
-            <div class="bg-slate-900/70 p-2.5 rounded-xl border border-slate-700/50">
-              <div class="text-[10px] text-slate-400">Valor Coste</div>
-              <div class="text-base font-black text-slate-200">${valuation.totalCostValuation.toFixed(2)}€</div>
-              <div class="text-[9px] text-slate-500">Inversión actual</div>
-            </div>
-            <div class="bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-500/30">
-              <div class="text-[10px] text-emerald-400">Valor PVP</div>
-              <div class="text-base font-black text-emerald-300">${valuation.totalRetailValuation.toFixed(2)}€</div>
-              <div class="text-[9px] text-emerald-400 font-bold">+${valuation.potentialGrossProfit.toFixed(2)}€ benef.</div>
-            </div>
-          </div>
-
-          <!-- Resumen horizontal compacto de cada Almacén / Casa de Trabajador -->
-          <div class="pt-2.5 border-t border-slate-700/50">
-            <div class="flex items-center justify-between text-[10px] text-slate-400 mb-2">
-              <span class="uppercase font-bold tracking-wider">Resumen por Ubicación (Toca uno para ver su stock):</span>
-              <button onclick="window.app.openWarehouseModal()" class="text-emerald-400 font-bold hover:underline">+ Añadir Trabajador</button>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            <div class="ios-grouped-list">
               ${(valuation.byWarehouse || []).map(wh => `
                 <div 
                   onclick="window.app.setInventoryWarehouse('${wh.warehouseId}')"
-                  class="btn-pressable cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 p-2.5 rounded-xl border ${
-                    wh.isMain ? 'border-emerald-500/30' : 'border-slate-700/60'
-                  } flex items-center justify-between"
+                  class="ios-grouped-row px-3.5 py-2.5 flex items-center justify-between cursor-pointer hover:bg-white/5 transition"
                 >
                   <div class="min-w-0 pr-2">
-                    <div class="flex items-center gap-1.5">
-                      <span class="text-sm">${wh.icon || '🏠'}</span>
-                      <span class="text-xs font-bold text-white truncate">${this._escapeHtml(wh.name)}</span>
-                    </div>
-                    <div class="text-[10px] text-slate-400 truncate">
-                      ${wh.workerName ? `👤 ${this._escapeHtml(wh.workerName)} • ` : ''}${wh.productsWithStock} sabores
-                    </div>
+                    <div class="text-xs font-semibold text-white truncate">${wh.icon || '🏠'} ${this._escapeHtml(wh.name)}</div>
+                    <div class="text-[10px] text-slate-400 truncate">${wh.workerName ? `${this._escapeHtml(wh.workerName)} · ` : ''}${wh.productsWithStock} sabores</div>
                   </div>
-                  <div class="text-right flex-shrink-0">
-                    <div class="text-xs font-black text-white">${wh.totalUnits} uds <span class="text-[10px] text-slate-400 font-normal">(${wh.stockSharePercentage}%)</span></div>
-                    <div class="text-[10px] text-emerald-400 font-semibold">PVP: ${wh.retailValuation.toFixed(0)}€ (+${wh.potentialProfit.toFixed(0)}€)</div>
+                  <div class="text-right flex-shrink-0 tabular-nums">
+                    <div class="text-xs font-bold text-white">${wh.totalUnits} uds (${wh.stockSharePercentage}%)</div>
+                    <div class="text-[10px] text-emerald-400">PVP ${wh.retailValuation.toFixed(0)} €</div>
                   </div>
                 </div>
               `).join('')}
             </div>
+
+            <div class="flex gap-2">
+              <button 
+                onclick="window.app.openStockMessageForWarehouse('${MAIN_WAREHOUSE_ID}')"
+                class="btn-pressable flex-1 bg-white/10 hover:bg-white/15 text-slate-200 py-2 px-3 rounded-xl text-xs font-medium"
+              >Copiar mensaje de stock</button>
+              <button 
+                onclick="window.app.switchInventorySubView('transfer')"
+                class="btn-pressable flex-1 bg-white/10 hover:bg-white/15 text-slate-200 py-2 px-3 rounded-xl text-xs font-medium"
+              >Repartir stock</button>
+            </div>
           </div>
-        </div>
+        </details>
       `;
     } else if (activeWhStats) {
-      // Tarjeta de cabecera del Almacén Específico seleccionado
       const whRecord = warehouses.find(w => w.id === activeWhStats.warehouseId);
       html += `
-        <div class="ios-card ios-card-glow-emerald mb-3.5">
-          <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="text-2xl">${activeWhStats.icon || '🏠'}</span>
-                <div>
-                  <div class="flex items-center gap-1.5">
-                    <h3 class="text-base font-black text-white leading-tight">${this._escapeHtml(activeWhStats.name)}</h3>
-                    ${isWorker ? '' : `<span class="badge badge-ok-stock text-[10px]">${activeWhStats.stockSharePercentage}% del stock</span>`}
-                  </div>
-                  <div class="text-xs text-slate-300 mt-0.5">
-                    ${activeWhStats.workerName ? `👤 Encargado: <strong>${this._escapeHtml(activeWhStats.workerName)}</strong>` : 'Almacén Principal'}
-                    ${whRecord?.notes ? ` • <span class="text-slate-400">${this._escapeHtml(whRecord.notes)}</span>` : ''}
-                  </div>
+        <details class="ios-accordion mb-3.5">
+          <summary>
+            <span>${this._escapeHtml(activeWhStats.name)} (${activeWhStats.totalUnits} uds · ${activeWhStats.retailValuation.toFixed(0)} € PVP)</span>
+          </summary>
+          <div class="ios-accordion-body space-y-3">
+            <div class="text-xs text-slate-400">
+              ${activeWhStats.workerName ? `Encargado: <strong class="text-white">${this._escapeHtml(activeWhStats.workerName)}</strong>` : 'Almacén Principal'}
+              ${whRecord?.notes ? ` · ${this._escapeHtml(whRecord.notes)}` : ''}
+            </div>
+
+            <div class="grid ${isWorker ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center">
+              <div class="bg-white/5 p-2.5 rounded-xl border border-white/10">
+                <div class="text-[10px] text-slate-400">Unidades</div>
+                <div class="text-base font-bold text-white tabular-nums">${activeWhStats.totalUnits} uds</div>
+                <div class="text-[9px] text-slate-400">${activeWhStats.productsWithStock} sabores</div>
+              </div>
+              ${isWorker ? '' : `
+                <div class="bg-white/5 p-2.5 rounded-xl border border-white/10">
+                  <div class="text-[10px] text-slate-400">Coste</div>
+                  <div class="text-base font-bold text-slate-200 tabular-nums">${activeWhStats.costValuation.toFixed(2)}€</div>
+                  <div class="text-[9px] text-slate-500">Mercancía</div>
                 </div>
+              `}
+              <div class="bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-400/25">
+                <div class="text-[10px] text-emerald-300">Valor PVP</div>
+                <div class="text-base font-bold text-emerald-300 tabular-nums">${activeWhStats.retailValuation.toFixed(2)}€</div>
+                ${isWorker ? '<div class="text-[9px] text-slate-400">Precio venta</div>' : `<div class="text-[9px] text-emerald-400 font-semibold tabular-nums">+${activeWhStats.potentialProfit.toFixed(2)}€ benef.</div>`}
               </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-1.5">
+            <div class="flex flex-wrap gap-2">
               <button 
                 onclick="window.app.openStockMessageForWarehouse('${activeWhStats.warehouseId}')"
-                class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
-              >
-                <span>📋</span> Copiar Stock
-              </button>
+                class="btn-pressable flex-1 bg-white/10 hover:bg-white/15 text-slate-200 py-2 px-3 rounded-xl text-xs font-medium"
+              >Copiar stock</button>
               ${isWorker ? '' : `
                 <button 
                   onclick="window.app.openTransferModal(null, '${activeWhStats.warehouseId}')"
-                  class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
-                >
-                  <span>🚚</span> Repartir / Mover
-                </button>
+                  class="btn-pressable flex-1 bg-white/10 hover:bg-white/15 text-slate-200 py-2 px-3 rounded-xl text-xs font-medium"
+                >Repartir / Mover</button>
                 <button 
                   onclick="window.app.openWarehouseModal('${activeWhStats.warehouseId}')"
-                  class="btn-pressable bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600/60 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1"
-                >
-                  <span>✏️</span> Editar
-                </button>
+                  class="btn-pressable bg-white/10 hover:bg-white/15 text-slate-200 py-2 px-3 rounded-xl text-xs font-medium"
+                >Editar almacén</button>
               `}
             </div>
           </div>
-
-          <div class="grid ${isWorker ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center">
-            <div class="bg-slate-900/75 p-2.5 rounded-xl border border-slate-700/50">
-              <div class="text-[10px] text-slate-400">Unidades en Almacén</div>
-              <div class="text-base font-black text-white">${activeWhStats.totalUnits} uds</div>
-              <div class="text-[9px] text-slate-400">${activeWhStats.productsWithStock} sabores disp.</div>
-            </div>
-            ${isWorker ? '' : `
-              <div class="bg-slate-900/75 p-2.5 rounded-xl border border-slate-700/50">
-                <div class="text-[10px] text-slate-400">Coste en Sitio</div>
-                <div class="text-base font-black text-slate-200">${activeWhStats.costValuation.toFixed(2)}€</div>
-                <div class="text-[9px] text-slate-500">Mercancía</div>
-              </div>
-            `}
-            <div class="bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-500/30">
-              <div class="text-[10px] text-emerald-400">Valor PVP</div>
-              <div class="text-base font-black text-emerald-300">${activeWhStats.retailValuation.toFixed(2)}€</div>
-              ${isWorker ? '<div class="text-[9px] text-slate-400">Precio venta</div>' : `<div class="text-[9px] text-emerald-400 font-bold">+${activeWhStats.potentialProfit.toFixed(2)}€ benef.</div>`}
-            </div>
-          </div>
-        </div>
+        </details>
       `;
     }
 
-    // Barra de búsqueda y botones de acción de catálogo
+    // Buscador de catálogo y lista agrupada estilo iOS 27
     html += `
-      <div class="flex items-center gap-2 mb-3">
-        <div class="relative flex-1">
-          <input 
-            type="text" 
-            id="inventorySearchInput" 
-            value="${this._escapeHtml(this.inventorySearchQuery || '')}"
-            placeholder="🔍 Filtrar sabores o categorías..." 
-            autocomplete="off"
-            autocorrect="off"
-            spellcheck="false"
-            class="w-full bg-slate-900/90 text-white placeholder-slate-400 pl-3.5 pr-9 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:border-emerald-500 text-sm"
-          />
-          <button type="button" id="btnClearInventorySearch" class="${this.inventorySearchQuery ? '' : 'hidden'} absolute right-3 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
-        </div>
-        ${isWorker ? '' : `
-          <button 
-            onclick="window.app.openProductModal()"
-            class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-1 shadow-lg shadow-emerald-900/40 whitespace-nowrap"
-          >
-            <span class="text-base leading-none">+</span> Producto
-          </button>
-        `}
+      <div class="relative mb-3">
+        <input 
+          type="text" 
+          id="inventorySearchInput" 
+          value="${this._escapeHtml(this.inventorySearchQuery || '')}"
+          placeholder="Buscar sabor en almacén" 
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck="false"
+          class="w-full bg-white/10 border border-white/10 rounded-2xl px-4 py-2.5 pr-9 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-white/25"
+        />
+        <button type="button" id="btnClearInventorySearch" class="${this.inventorySearchQuery ? '' : 'hidden'} absolute right-3.5 top-2.5 text-slate-400 hover:text-white text-sm font-bold">✕</button>
       </div>
 
-      <!-- Lista de productos con desglose por almacenes -->
-      <div id="inventoryProductGrid" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pb-8">
+      <!-- Lista agrupada de sabores estilo iOS 27 -->
+      <div id="inventoryProductGrid" class="ios-grouped-list mb-8">
         ${this._buildInventoryProductGridHtml(products, warehouses, isWorker)}
       </div>
     `;
@@ -1936,115 +1800,62 @@ class AppController {
       ? (targetAdjustWhObj.isMain ? 'Principal' : targetAdjustWhObj.name)
       : 'Principal';
 
-    return products.map((p, idx) => {
-      const displayStock = this.selectedInventoryWarehouse === 'all' ? p.stock : p.warehouseStock;
+    return products.map((p) => {
       const adjustWhStock = p.stockByWarehouse?.[targetAdjustWh] || 0;
-      const isLow = displayStock <= 4;
-      const profitMargin = p.sellPrice > 0 ? (((p.sellPrice - p.costPrice) / p.sellPrice) * 100).toFixed(0) : 0;
+      const reservedCount = isWorker ? (p.warehouseReserved || 0) : (p.totalReserved || 0);
       const theme = this._getFlavorVisualTheme(p.name);
-      const animDelay = Math.min(idx * 20, 220);
 
-      // Chips de desglose por almacén (solo visibles para el Jefe)
-      const warehouseChipsHtml = isWorker ? '' : warehouses.map(wh => {
-        const count = p.stockByWarehouse?.[wh.id] || 0;
-        const isCurrentWh = this.selectedInventoryWarehouse === wh.id;
-        return `
-          <span 
-            onclick="event.stopPropagation(); window.app.setInventoryWarehouse('${wh.id}')"
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold border cursor-pointer tabular-nums ${
-              isCurrentWh
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                : count > 0
-                  ? 'bg-slate-800/90 text-slate-200 border-slate-700'
-                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
-            }"
-          >
-            <span>${wh.icon || '🏠'}</span>
-            <span>${this._escapeHtml(wh.isMain ? 'Mi Almacén' : wh.name)}:</span>
-            <strong class="${count > 0 ? 'text-white' : 'text-slate-500'}">${count}</strong>
-          </span>
-        `;
-      }).join('');
+      const whBreakdownSummary = (!isWorker && warehouses.length > 1)
+        ? warehouses
+            .map(wh => `${wh.isMain ? 'Prin.' : (wh.workerName || wh.name)}: ${p.stockByWarehouse?.[wh.id] || 0}`)
+            .join(' · ')
+        : '';
 
       return `
-        <div style="animation-delay: ${animDelay}ms" class="ios-card flex items-stretch justify-between gap-3 p-3.5 mb-0">
-          <!-- Info básica, orbe de sabor, precios y chips de stock por almacén -->
-          <div class="flex-1 min-w-0 ${isWorker ? '' : 'cursor-pointer'}" ${isWorker ? '' : `onclick="window.app.openProductModal('${p.id}')"`}>
-            <div class="flex items-start gap-2.5">
-              <div class="flavor-orb" style="background: ${theme.orbBg}; width: 38px; height: 38px; font-size: 18px;">
-                <span>${theme.emoji}</span>
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
-                  <span class="text-[9.5px] uppercase font-bold tracking-wider text-slate-400 px-1.5 py-0.5 rounded bg-slate-900/90 border border-white/10">
-                    ${this._escapeHtml(p.category || 'Sabores')}
-                  </span>
-                  ${isLow ? `<span class="text-[10px] text-rose-400 font-bold">⚠️ ${displayStock === 0 ? 'Agotado' : 'Stock bajo'}</span>` : ''}
-                  ${(isWorker ? p.warehouseReserved : p.totalReserved) > 0 ? `<span class="badge badge-reserved text-[9.5px]">📌 ${isWorker ? p.warehouseReserved : p.totalReserved} res.</span>` : ''}
-                </div>
-                <h4 class="font-extrabold text-white text-sm leading-snug">${this._escapeHtml(p.name)}</h4>
+        <div class="ios-grouped-row px-4 py-3 flex items-center justify-between gap-3">
+          <div 
+            class="flex items-center gap-3 min-w-0 flex-1 ${isWorker ? '' : 'cursor-pointer'}"
+            ${isWorker ? '' : `onclick="window.app.openProductModal('${p.id}')"`}
+          >
+            <span class="text-xl flex-shrink-0">${theme.emoji}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium text-white truncate">${this._escapeHtml(p.name)}</div>
+              <div class="text-xs text-slate-400 truncate tabular-nums">
+                ${p.sellPrice.toFixed(2)} € · ${reservedCount > 0 ? `<span class="text-purple-300">${reservedCount} reservadas</span>` : 'Sin reservas'}
+                ${whBreakdownSummary ? ` · <span class="text-slate-500">${this._escapeHtml(whBreakdownSummary)}</span>` : ''}
               </div>
             </div>
-
-            <div class="flex flex-wrap items-center gap-3 text-xs mt-2 text-slate-400 tabular-nums">
-              ${isWorker ? '' : `<span>Coste: <strong class="text-slate-200">${p.costPrice.toFixed(2)}€</strong></span>`}
-              <span>PVP: <strong class="text-white">${p.sellPrice.toFixed(2)}€</strong></span>
-              ${isWorker ? '' : `<span class="text-emerald-400 text-[11px] font-bold">+${(p.sellPrice - p.costPrice).toFixed(2)}€ (${profitMargin}%)</span>`}
-            </div>
-
-            ${isWorker ? '' : `
-              <!-- Desglose exacto por almacenes -->
-              <div class="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-white/10">
-                ${warehouseChipsHtml}
-              </div>
-            `}
           </div>
 
-          <!-- Controles rápidos de Stock +/- (Jefe) o Solo Lectura + Reservar (Trabajador) -->
-          <div class="flex flex-col items-center justify-between bg-slate-900/80 p-2 rounded-xl border border-slate-700/60 min-w-[92px]">
-            <div class="text-[9px] text-slate-400 uppercase font-bold truncate max-w-[88px]" title="Stock en ${this._escapeHtml(targetAdjustWhLabel)}">
-              ${targetAdjustWhObj?.icon || '🏠'} ${this._escapeHtml(targetAdjustWhLabel)}
-            </div>
-
+          <div class="flex items-center gap-2 flex-shrink-0">
             ${isWorker ? `
-              <div class="my-1.5 text-center">
-                <div class="text-xl font-black ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-400' : 'text-white'}">
-                  ${adjustWhStock}
-                </div>
-                <div class="text-[9px] text-slate-400">uds físicas</div>
-              </div>
+              <span class="text-sm font-semibold text-white w-6 text-center tabular-nums">${adjustWhStock}</span>
               <button 
                 type="button"
                 onclick="window.app.openReservationModal('${p.id}', '${targetAdjustWh}')"
-                class="btn-pressable w-full py-1 px-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-bold flex items-center justify-center gap-1"
-              >
-                <span>📌</span> Reservar
-              </button>
+                class="btn-pressable px-2.5 py-1 rounded-full bg-white/10 text-purple-300 text-xs font-medium"
+              >Reservar</button>
             ` : `
-              <div class="flex items-center gap-2 my-1">
-                <button 
-                  type="button"
-                  onclick="window.app.adjustStockInline('${p.id}', -1, '${targetAdjustWh}')"
-                  class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-slate-200 font-bold flex items-center justify-center hover:bg-slate-700 border border-slate-600/40 text-sm"
-                  ${adjustWhStock <= 0 ? 'disabled style="opacity:0.3"' : ''}
-                >-</button>
-                <span class="text-base font-black ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-400' : 'text-white'} min-w-[22px] text-center">
-                  ${adjustWhStock}
-                </span>
-                <button 
-                  type="button"
-                  onclick="window.app.adjustStockInline('${p.id}', 1, '${targetAdjustWh}')"
-                  class="btn-pressable w-7 h-7 rounded-lg bg-slate-800 text-slate-200 font-bold flex items-center justify-center hover:bg-slate-700 border border-slate-600/40 text-sm"
-                >+</button>
-              </div>
-
+              <button 
+                type="button"
+                onclick="window.app.adjustStockInline('${p.id}', -1, '${targetAdjustWh}')"
+                class="btn-pressable w-7 h-7 rounded-full bg-white/10 hover:bg-white/15 text-white text-sm flex items-center justify-center"
+                ${adjustWhStock <= 0 ? 'disabled style="opacity:0.3"' : ''}
+              >-</button>
+              <span class="text-sm font-semibold ${adjustWhStock <= 0 ? 'text-rose-400' : adjustWhStock <= 4 ? 'text-amber-300' : 'text-white'} w-6 text-center tabular-nums">
+                ${adjustWhStock}
+              </span>
+              <button 
+                type="button"
+                onclick="window.app.adjustStockInline('${p.id}', 1, '${targetAdjustWh}')"
+                class="btn-pressable w-7 h-7 rounded-full bg-white/10 hover:bg-white/15 text-white text-sm flex items-center justify-center"
+              >+</button>
               <button 
                 type="button"
                 onclick="window.app.openTransferModal('${p.id}', '${targetAdjustWh}')"
-                class="btn-pressable w-full py-1 px-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold flex items-center justify-center gap-1"
-              >
-                <span>🚚</span> Repartir
-              </button>
+                class="btn-pressable w-7 h-7 rounded-full bg-white/5 hover:bg-white/15 text-slate-300 text-xs flex items-center justify-center"
+                title="Repartir este sabor"
+              >🚚</button>
             `}
           </div>
         </div>
@@ -3628,221 +3439,237 @@ class AppController {
     const flavorIntelHtml = this._buildFlavorIntelligenceSectionHtml(data.warehouseFlavorIntelligence);
 
     let html = `
-      <!-- 0. CONTROLES DE FILTRO: TIEMPO, ALMACÉN Y PEDIDO -->
-      <div class="ios-segmented mb-2.5">
-        <button class="segmented-option ${this.analyticsTimeframe === 'today' ? 'active' : ''}" onclick="window.app.setTimeframe('today')">Hoy</button>
-        <button class="segmented-option ${this.analyticsTimeframe === 'week' ? 'active' : ''}" onclick="window.app.setTimeframe('week')">7 Días</button>
-        <button class="segmented-option ${this.analyticsTimeframe === 'month' ? 'active' : ''}" onclick="window.app.setTimeframe('month')">Este Mes</button>
-        <button class="segmented-option ${this.analyticsTimeframe === 'all' ? 'active' : ''}" onclick="window.app.setTimeframe('all')">Todo</button>
-      </div>
-
-      <div class="warehouse-pills-bar no-scrollbar mb-2">
-        <button 
-          type="button"
-          onclick="window.app.setAnalyticsWarehouseFilter('all')"
-          class="warehouse-pill btn-pressable ${this.analyticsWarehouseFilter === 'all' ? 'active-indigo' : ''}"
-        >
-          <span>🌐</span>
-          <span>Todos los Almacenes</span>
-        </button>
-        ${warehouses.map(wh => `
-          <button 
-            type="button"
-            onclick="window.app.setAnalyticsWarehouseFilter('${wh.id}')"
-            class="warehouse-pill btn-pressable ${this.analyticsWarehouseFilter === wh.id ? 'active' : ''}"
-          >
-            <span>${wh.icon || '🏠'}</span>
-            <span>${this._escapeHtml(wh.name)}</span>
-          </button>
-        `).join('')}
-      </div>
-
-      <!-- Filtro de Pedido / Lote -->
-      <div class="warehouse-pills-bar no-scrollbar mb-4">
-        <button 
-          type="button"
-          onclick="window.app.setAnalyticsOrderFilter('all')"
-          class="warehouse-pill btn-pressable ${this.analyticsOrderFilter === 'all' ? 'active-indigo' : ''}"
-        >
-          <span>📦</span>
-          <span>Todos los Pedidos (General)</span>
-        </button>
-        ${ordersList.map(o => `
-          <button 
-            type="button"
-            onclick="window.app.setAnalyticsOrderFilter('${o.id}')"
-            class="warehouse-pill btn-pressable ${this.analyticsOrderFilter === o.id ? 'active' : ''}"
-          >
-            <span>${o.status === 'active' ? '🟢' : '🏁'}</span>
-            <span>${this._escapeHtml(o.name)}</span>
-          </button>
-        `).join('')}
-        <button
-          type="button"
-          onclick="window.app.openNewOrderModal()"
-          class="warehouse-pill btn-pressable border-dashed border-emerald-500/50 text-emerald-300 bg-emerald-950/20"
-        >
-          <span>+</span>
-          <span>Nuevo Pedido</span>
-        </button>
-      </div>
-
-      <!-- SUB-NAVEGACIÓN LIQUID GLASS DE MÉTRICAS (iOS 27) -->
-      <div class="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-white/[0.04] border border-white/10 mb-4">
+      <!-- Sub-pestañas estilo iOS 27 (igual que la preview: Resumen | Pedidos | Vendedores | Análisis) -->
+      <div class="ios-segmented mb-3.5">
         ${[
-          { id: 'resumen', label: '📊 Resumen' },
-          { id: 'pedidos', label: '📦 Pedidos' },
-          { id: 'vendedores', label: '🤝 Equipo' },
-          { id: 'avanzado', label: '🧠 Análisis' }
+          { id: 'resumen', label: 'Resumen' },
+          { id: 'pedidos', label: 'Pedidos' },
+          { id: 'vendedores', label: 'Vendedores' },
+          { id: 'avanzado', label: 'Análisis' }
         ].map(tab => {
           const isSubActive = (this.analyticsSubView || 'resumen') === tab.id;
           return `
             <button
               type="button"
               onclick="window.app.setAnalyticsSubView('${tab.id}')"
-              class="btn-pressable py-2 px-2 rounded-xl text-[11px] font-bold transition-all text-center truncate ${
-                isSubActive
-                  ? 'bg-white text-slate-950 shadow-sm font-extrabold'
-                  : 'text-slate-400 hover:text-white'
-              }"
+              class="segmented-option ${isSubActive ? 'active' : ''}"
             >${tab.label}</button>
           `;
         }).join('')}
       </div>
 
-      <!-- SUB-VISTA 1: RESUMEN (KPIs Periodo, Gráficas, Facturación General, Fiados/Reservas, Pagos/Top y Últimas Ventas) -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? ' block' : 'hidden'}">
-
-      <!-- 2. TARJETAS KPI DEL PERIODO Y ALMACÉN SELECCIONADO -->
-      <div class="mb-2 px-1 flex items-center justify-between">
-        <span class="text-xs font-bold uppercase tracking-wider text-slate-300">
-          📊 Resumen de ${timeframeLabels[this.analyticsTimeframe]} (${activeFilterTitle})
-        </span>
-      </div>
-
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-        <div class="ios-card mb-0 p-3.5">
-          <div class="text-[11px] text-slate-400 font-semibold mb-1">💶 Facturado Periodo</div>
-          <div class="text-2xl font-black text-white tracking-tight">${data.totalBilled.toFixed(2)}€</div>
-          <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
-            <span>${data.transactionCount} ventas</span>
-            <span>Coste: ${data.totalCost.toFixed(2)}€</span>
-          </div>
-        </div>
-
-        <div class="ios-card ios-card-glow-emerald mb-0 p-3.5">
-          <div class="text-[11px] text-emerald-400 font-semibold mb-1">📈 Beneficio Periodo</div>
-          <div class="text-2xl font-black text-emerald-400 tracking-tight">+${data.totalProfit.toFixed(2)}€</div>
-          <div class="text-[10px] text-emerald-300/90 mt-1 flex justify-between">
-            <span>Margen: ${data.overallProfitMargin}%</span>
-            <span>+${data.averageUnitProfit.toFixed(2)}€/ud</span>
-          </div>
-        </div>
-
-        <div class="ios-card mb-0 p-3.5">
-          <div class="text-[11px] text-slate-400 font-semibold mb-1">📦 Volumen Vendido</div>
-          <div class="text-2xl font-black text-white tracking-tight">${data.totalUnits} uds</div>
-          <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
-            <span>PVP medio: ${data.averageUnitPrice.toFixed(2)}€</span>
-          </div>
-        </div>
-
-        <div class="ios-card mb-0 p-3.5">
-          <div class="text-[11px] text-slate-400 font-semibold mb-1">🧾 Ticket Medio</div>
-          <div class="text-2xl font-black text-white tracking-tight">${data.averageTicket.toFixed(2)}€</div>
-          <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
-            <span>💵 ${data.paymentMethods.Efectivo.percentage}%</span>
-            <span>💳 ${data.paymentMethods.Tarjeta.percentage}%</span>
-          </div>
+      <!-- Barra compacta de periodo + desplegable de filtros avanzados -->
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          ${[
+            { id: 'today', label: 'Hoy' },
+            { id: 'week', label: '7 días' },
+            { id: 'month', label: '30 días' },
+            { id: 'all', label: 'Todo' }
+          ].map(tf => `
+            <button
+              type="button"
+              onclick="window.app.setTimeframe('${tf.id}')"
+              class="btn-pressable px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition ${
+                this.analyticsTimeframe === tf.id
+                  ? 'bg-white text-slate-950 font-semibold'
+                  : 'bg-white/10 text-slate-300 border border-white/10 font-medium'
+              }"
+            >${tf.label}</button>
+          `).join('')}
         </div>
       </div>
 
-      <!-- 2.B GRÁFICAS INTERACTIVAS EN FUNCIÓN DEL TIEMPO: FACTURACIÓN (€) Y UNIDADES (UDS) -->
-      ${revenueChartCardHtml}
-      ${unitsChartCardHtml}
-
-      <!-- 1. TARJETA DESTACADA: FACTURACIÓN GENERAL HISTÓRICA ("Cuánto se factura en general") -->
-      <details class="ios-accordion mb-4" open>
+      <details class="ios-accordion mb-3.5">
         <summary>
-          <div class="flex items-center gap-2">
-            <span>🏆</span>
-            <span>Facturación General Acumulada (Total Negocio)</span>
-            <span class="badge badge-ok-stock text-[10px] ml-1">${allTime.transactionCount} ventas</span>
-          </div>
+          <span>Filtro: ${activeFilterTitle}</span>
         </summary>
-        <div class="ios-accordion-body">
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
-              <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Facturado General</div>
-              <div class="text-xl font-black text-white mt-0.5">${allTime.totalBilled.toFixed(2)}€</div>
-              <div class="text-[10px] text-slate-400 mt-0.5">Ticket medio: ${allTime.averageTicket.toFixed(2)}€</div>
-            </div>
+        <div class="ios-accordion-body space-y-2.5">
+          <div class="text-[11px] text-slate-400 font-medium">Almacén</div>
+          <div class="warehouse-pills-bar no-scrollbar">
+            <button 
+              type="button"
+              onclick="window.app.setAnalyticsWarehouseFilter('all')"
+              class="warehouse-pill btn-pressable ${this.analyticsWarehouseFilter === 'all' ? 'active' : ''}"
+            >Todos</button>
+            ${warehouses.map(wh => `
+              <button 
+                type="button"
+                onclick="window.app.setAnalyticsWarehouseFilter('${wh.id}')"
+                class="warehouse-pill btn-pressable ${this.analyticsWarehouseFilter === wh.id ? 'active' : ''}"
+              >${this._escapeHtml(wh.isMain ? 'Principal' : (wh.workerName || wh.name))}</button>
+            `).join('')}
+          </div>
 
-            <div class="bg-emerald-950/50 p-3 rounded-xl border border-emerald-500/30">
-              <div class="text-[10px] text-emerald-300 uppercase font-semibold">Beneficio Neto Total</div>
-              <div class="text-xl font-black text-emerald-400 mt-0.5">+${allTime.totalProfit.toFixed(2)}€</div>
-              <div class="text-[10px] text-emerald-300/80 mt-0.5">Margen global: ${allTime.overallProfitMargin}%</div>
-            </div>
-
-            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
-              <div class="text-[10px] text-slate-400 uppercase font-semibold">Unidades Vendidas</div>
-              <div class="text-xl font-black text-white mt-0.5">${allTime.totalUnits} uds</div>
-              <div class="text-[10px] text-slate-400 mt-0.5">Coste merc.: ${allTime.totalCost.toFixed(2)}€</div>
-            </div>
-
-            <div class="bg-slate-950/60 p-3 rounded-xl border border-white/10">
-              <div class="text-[10px] text-slate-400 uppercase font-semibold">Efectivo vs Tarjeta</div>
-              <div class="text-xs font-bold text-emerald-400 mt-1">💵 ${allTime.cashBilled.toFixed(2)}€ (${allTime.cashPercentage}%)</div>
-              <div class="text-xs font-bold text-indigo-300 mt-0.5">💳 ${allTime.cardBilled.toFixed(2)}€ (${allTime.cardPercentage}%)</div>
-            </div>
+          <div class="text-[11px] text-slate-400 font-medium pt-1">Pedido / Lote</div>
+          <div class="warehouse-pills-bar no-scrollbar">
+            <button 
+              type="button"
+              onclick="window.app.setAnalyticsOrderFilter('all')"
+              class="warehouse-pill btn-pressable ${this.analyticsOrderFilter === 'all' ? 'active' : ''}"
+            >Todos los pedidos</button>
+            ${ordersList.map(o => `
+              <button 
+                type="button"
+                onclick="window.app.setAnalyticsOrderFilter('${o.id}')"
+                class="warehouse-pill btn-pressable ${this.analyticsOrderFilter === o.id ? 'active' : ''}"
+              >${this._escapeHtml(o.name)}</button>
+            `).join('')}
+            <button
+              type="button"
+              onclick="window.app.openNewOrderModal()"
+              class="warehouse-pill btn-pressable text-emerald-300"
+            >+ Nuevo pedido</button>
           </div>
         </div>
       </details>
 
-      <!-- PUNTO 4: CONTROL DE FIADOS (PENDIENTES DE COBRO) Y RESERVAS ACTIVAS -->
-      ${debtsAndReservationsHtml}
+      <!-- ================================================================= -->
+      <!-- SUB-VISTA 1: RESUMEN (Diseño idéntico a la preview + acordeones)  -->
+      <!-- ================================================================= -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? 'block space-y-3.5' : 'hidden'}">
+        <!-- 2 Tarjetas principales estilo iOS 27 Preview -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="ios-glass-card p-4">
+            <div class="text-xs text-slate-400">Facturación (${timeframeLabels[this.analyticsTimeframe]})</div>
+            <div class="text-2xl font-bold text-white mt-1 tabular-nums">${data.totalBilled.toFixed(2)} €</div>
+            <div class="text-xs text-emerald-400 mt-1 tabular-nums">+${data.totalProfit.toFixed(2)} € beneficio (${data.overallProfitMargin}%)</div>
+          </div>
+          <div class="ios-glass-card p-4">
+            <div class="text-xs text-slate-400">Unidades</div>
+            <div class="text-2xl font-bold text-white mt-1 tabular-nums">${data.totalUnits} uds</div>
+            <div class="text-xs text-slate-400 mt-1 tabular-nums">Ticket medio ${data.averageTicket.toFixed(2)} € · ${data.transactionCount} ventas</div>
+          </div>
+        </div>
+
+        <!-- Gráfica principal de Evolución (€) -->
+        ${revenueChartCardHtml}
+
+        <!-- Lista agrupada de desgloses adicionales de Resumen (sin eliminar nada) -->
+        <div class="ios-grouped-list">
+          <!-- 1. Facturación General Histórica -->
+          <details class="ios-grouped-accordion">
+            <summary>
+              <span class="text-sm text-white font-medium">Facturación general acumulada</span>
+              <span class="text-xs text-emerald-400 font-semibold tabular-nums">${allTime.totalBilled.toFixed(2)} € ›</span>
+            </summary>
+            <div class="ios-grouped-accordion-body">
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div class="bg-white/5 p-3 rounded-xl border border-white/10">
+                  <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Facturado</div>
+                  <div class="text-lg font-bold text-white mt-0.5 tabular-nums">${allTime.totalBilled.toFixed(2)}€</div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">Ticket: ${allTime.averageTicket.toFixed(2)}€ (${allTime.transactionCount} ventas)</div>
+                </div>
+                <div class="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/25">
+                  <div class="text-[10px] text-emerald-300 uppercase font-semibold">Beneficio Neto</div>
+                  <div class="text-lg font-bold text-emerald-400 mt-0.5 tabular-nums">+${allTime.totalProfit.toFixed(2)}€</div>
+                  <div class="text-[10px] text-emerald-300/80 mt-0.5">Margen: ${allTime.overallProfitMargin}%</div>
+                </div>
+                <div class="bg-white/5 p-3 rounded-xl border border-white/10">
+                  <div class="text-[10px] text-slate-400 uppercase font-semibold">Unidades</div>
+                  <div class="text-lg font-bold text-white mt-0.5 tabular-nums">${allTime.totalUnits} uds</div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">Coste: ${allTime.totalCost.toFixed(2)}€</div>
+                </div>
+                <div class="bg-white/5 p-3 rounded-xl border border-white/10">
+                  <div class="text-[10px] text-slate-400 uppercase font-semibold">Efectivo vs Tarjeta</div>
+                  <div class="text-xs font-semibold text-emerald-400 mt-1 tabular-nums">💵 ${allTime.cashBilled.toFixed(2)}€ (${allTime.cashPercentage}%)</div>
+                  <div class="text-xs font-semibold text-indigo-300 mt-0.5 tabular-nums">💳 ${allTime.cardBilled.toFixed(2)}€ (${allTime.cardPercentage}%)</div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- 2. Gráfica de Unidades Vendidas -->
+          <details class="ios-grouped-accordion">
+            <summary>
+              <span class="text-sm text-white font-medium">Gráfica de unidades vendidas</span>
+              <span class="text-xs text-slate-400 tabular-nums">${data.totalUnits} uds ›</span>
+            </summary>
+            <div class="ios-grouped-accordion-body">
+              ${unitsChartCardHtml}
+            </div>
+          </details>
+
+          <!-- 3. Fiados pendientes y Reservas activas -->
+          <details class="ios-grouped-accordion">
+            <summary>
+              <span class="text-sm text-white font-medium">Fiados pendientes y reservas</span>
+              <span class="text-xs ${data.debtsAndReservations.totalPendingDebtAmount > 0 ? 'text-amber-300 font-semibold' : 'text-slate-400'} tabular-nums">
+                ${data.debtsAndReservations.totalPendingDebtAmount.toFixed(0)} € · ${data.debtsAndReservations.activeReservations.length} res. ›
+              </span>
+            </summary>
+            <div class="ios-grouped-accordion-body">
+              ${debtsAndReservationsHtml}
+            </div>
+          </details>
+        </div>
       </div>
 
-      <!-- SUB-VISTA 2: PEDIDOS Y SALUD FINANCIERA -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'pedidos' ? 'block' : 'hidden'}">
-        <!-- 1.B MÉTRICAS Y COMPARATIVA DE CADA PEDIDO / LOTE -->
+      <!-- ================================================================= -->
+      <!-- SUB-VISTA 2: PEDIDOS Y SALUD FINANCIERA                           -->
+      <!-- ================================================================= -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'pedidos' ? 'block space-y-3.5' : 'hidden'}">
         ${ordersMetricsHtml}
       </div>
 
-      <!-- SUB-VISTA 3: EQUIPO, CUENTAS CON TRABAJADORES, ALMACENES Y DESCUENTOS -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'vendedores' ? 'block' : 'hidden'}">
-        <!-- PUNTO 1: CONTROL DE CUENTAS, LIQUIDACIONES Y VAPERS DE REGALO CON TRABAJADORES -->
+      <!-- ================================================================= -->
+      <!-- SUB-VISTA 3: VENDEDORES, ALMACENES Y DESCUENTOS                   -->
+      <!-- ================================================================= -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'vendedores' ? 'block space-y-3.5' : 'hidden'}">
         ${workerAccountsHtml}
 
-        <!-- PUNTO 3: CONTROL DE DESCUENTOS Y PRECIO MEDIO REAL POR TRABAJADOR -->
-        ${discountMetricsHtml}
+        <div class="ios-grouped-list">
+          <details class="ios-grouped-accordion">
+            <summary>
+              <span class="text-sm text-white font-medium">Control de descuentos por vendedor</span>
+              <span class="text-xs text-slate-400 tabular-nums">-${data.discountMetrics.periodTotalDiscount.toFixed(2)} € ›</span>
+            </summary>
+            <div class="ios-grouped-accordion-body">
+              ${discountMetricsHtml}
+            </div>
+          </details>
+        </div>
       </div>
 
-      <!-- SUB-VISTA 4: ANÁLISIS AVANZADO (INTELIGENCIA SABORES, MAPA CALOR) -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block' : 'hidden'}">
-        <!-- PUNTO 7: INTELIGENCIA DE SABORES POR ZONA / TRABAJADOR Y REPOSICIÓN INTELIGENTE -->
-        ${flavorIntelHtml}
+      <!-- ================================================================= -->
+      <!-- SUB-VISTA 4: ANÁLISIS AVANZADO                                    -->
+      <!-- ================================================================= -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block space-y-3.5' : 'hidden'}">
+        <div class="ios-grouped-list">
+          <details class="ios-grouped-accordion" open>
+            <summary>
+              <span class="text-sm text-white font-medium">Inteligencia de sabores y reposición</span>
+              <span class="text-xs text-emerald-400">Ver sugerencias ›</span>
+            </summary>
+            <div class="ios-grouped-accordion-body">
+              ${flavorIntelHtml}
+            </div>
+          </details>
 
-        <!-- PUNTO 5: MAPA DE CALOR DE VENTAS DÍAS × FRANJAS HORARIAS -->
-        ${salesHeatmapHtml}
+          <details class="ios-grouped-accordion">
+            <summary>
+              <span class="text-sm text-white font-medium">Mapa de calor (Días × Horas)</span>
+              <span class="text-xs text-slate-400">Ver mapa ›</span>
+            </summary>
+            <div class="ios-grouped-accordion-body">
+              ${salesHeatmapHtml}
+            </div>
+          </details>
+        </div>
       </div>
 
-      <!-- 3. DESGLOSE COMPLETO POR ALMACENES Y CASAS DE TRABAJADORES ("Cuánto por almacenes y todo") -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'vendedores' ? 'block' : 'hidden'}">
-      <div class="ios-card ios-card-glow-indigo mb-4">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div>
-            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-              <span>🏢</span> Facturación, Beneficio y Stock por Almacenes / Trabajadores
-            </h3>
-            <p class="text-[11px] text-slate-300 mt-0.5">
-              Comparativa detallada de lo que vende y tiene en stock cada almacén o trabajador.
-            </p>
-          </div>
+      <!-- 3. DESGLOSE COMPLETO POR ALMACENES Y CASAS DE TRABAJADORES -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'vendedores' ? 'block mt-3.5' : 'hidden'}">
+      <details class="ios-accordion mb-4">
+        <summary>
+          <span>Comparativa detallada por almacén (${data.warehouseBreakdown.length})</span>
+        </summary>
+        <div class="ios-accordion-body">
+        <div class="flex justify-end mb-2.5">
           <button 
             onclick="window.app.openWarehouseModal()"
-            class="btn-pressable bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-xl text-[11px] font-bold"
-          >+ Añadir Almacén</button>
+            class="btn-pressable bg-white/10 hover:bg-white/15 text-emerald-300 px-3 py-1 rounded-full text-xs font-medium"
+          >+ Añadir almacén</button>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -3928,23 +3755,17 @@ class AppController {
             `;
           }).join('')}
         </div>
-      </div>
+        </div>
+      </details>
       </div>
 
       <!-- 4. SALUD FINANCIERA, RECUPERACIÓN DE INVERSIÓN (BREAK-EVEN), ROI Y PROYECCIÓN TOTAL -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'pedidos' ? 'block' : 'hidden'}">
-      <div class="ios-card mb-4">
-        <div class="flex items-center justify-between mb-2.5">
-          <div>
-            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-              <span>🏦</span> Salud Financiera, ROI y Proyección Total
-            </h3>
-            <p class="text-[11px] text-slate-400">Control de inversión en mercancía, retorno de capital y beneficio proyectado</p>
-          </div>
-          <span class="badge ${health.netCashBalance >= 0 ? 'badge-ok-stock' : 'badge-low-stock'}">
-            ROI: ${health.roiPercentage}%
-          </span>
-        </div>
+      <div class="${(this.analyticsSubView || 'resumen') === 'pedidos' ? 'block mt-3.5' : 'hidden'}">
+      <details class="ios-accordion mb-4">
+        <summary>
+          <span>Salud financiera, Break-Even y proyección (ROI ${health.roiPercentage}%)</span>
+        </summary>
+        <div class="ios-accordion-body">
 
         <!-- Barra de Recuperación de Capital Invertido -->
         <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60 mb-3">
@@ -3992,21 +3813,17 @@ class AppController {
             <div class="text-[10px] text-emerald-300/80">Rotación global: ${health.globalSellThroughRate}%</div>
           </div>
         </div>
-      </div>
+        </div>
+      </details>
       </div>
 
       <!-- 5. EVOLUCIÓN DE ÚLTIMOS 7 DÍAS Y RITMO DE VENTA (velocityMetrics) -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block' : 'hidden'}">
-      <div class="ios-card mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <div>
-            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-              <span>⚡</span> Evolución Últimos 7 Días y Ritmo de Venta
-            </h3>
-            <span class="text-[11px] text-slate-400">Tendencia diaria (${activeFilterTitle})</span>
-          </div>
-          <span class="badge badge-warehouse text-[10px]">${vel.activeDaysCount} días activos</span>
-        </div>
+      <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block mt-3.5' : 'hidden'}">
+      <details class="ios-accordion mb-3.5">
+        <summary>
+          <span>Evolución 7 días y ritmo de venta (${vel.activeDaysCount} días activos)</span>
+        </summary>
+        <div class="ios-accordion-body">
 
         <!-- Gráfica de Barras CSS de 7 Días -->
         <div class="bg-slate-900/75 p-3 rounded-2xl border border-slate-800 mb-3">
@@ -4057,12 +3874,18 @@ class AppController {
             <div class="text-[10px] text-slate-500">Récord facturación</div>
           </div>
         </div>
-      </div>
+        </div>
+      </details>
       </div>
 
-      <!-- 6. MÉTODOS DE PAGO, TOP SABORES, ROTACIÓN LENTA Y ALERTAS -->
-      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? 'block' : 'hidden'}">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+      <!-- 6. MÉTODOS DE PAGO, TOP SABORES -->
+      <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? 'block mt-3.5' : 'hidden'}">
+      <details class="ios-accordion mb-3.5">
+        <summary>
+          <span>Top sabores y Efectivo vs Tarjeta (${timeframeLabels[this.analyticsTimeframe]})</span>
+        </summary>
+        <div class="ios-accordion-body">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <!-- Desglose de Métodos de Pago del Periodo -->
         <div class="ios-card mb-0">
           <div class="flex justify-between items-center mb-2">
@@ -4131,11 +3954,18 @@ class AppController {
           `}
         </div>
       </div>
+        </div>
+      </details>
       </div>
 
       <!-- Menor Rotación y Alertas de Reposición -->
       <div class="${(this.analyticsSubView || 'resumen') === 'avanzado' ? 'block' : 'hidden'}">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+      <details class="ios-accordion mb-4">
+        <summary>
+          <span>Menor rotación y alertas de stock (${data.lowStockAlerts.length})</span>
+        </summary>
+        <div class="ios-accordion-body">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div class="ios-card mb-0">
           <div class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2.5">
             🐢 Sabores con Menor Rotación (Stock Retenido)
@@ -4185,16 +4015,15 @@ class AppController {
           `}
         </div>
       </div>
+        </div>
+      </details>
       </div>
 
       <!-- Historial de Ventas Recientes del Periodo -->
       <div class="${(this.analyticsSubView || 'resumen') === 'resumen' ? 'block' : 'hidden'}">
-      <details class="ios-accordion mb-4" open>
+      <details class="ios-accordion mb-4">
         <summary>
-          <div class="flex items-center justify-between w-full pr-2">
-            <span>🕒 Últimas Ventas del Periodo</span>
-            <span class="text-xs text-slate-400 font-semibold">${data.recentSales.length} mostradas</span>
-          </div>
+          <span>Últimas ventas del periodo (${data.recentSales.length})</span>
         </summary>
         <div class="ios-accordion-body">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pb-2">
@@ -4289,117 +4118,73 @@ class AppController {
     const workersList = workerAccounts.workerWarehousesOnly || [];
 
     return `
-      <div class="ios-card ios-card-glow-emerald mb-4">
-        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
-          <div>
-            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-              <span>🤝</span> Cuentas con Trabajadores: Liquidaciones y Vapers de Regalo
-            </h3>
-            <p class="text-[11px] text-slate-300 mt-0.5">
-              Controla cuánto dinero te tiene que entregar cada trabajador y cuántos vapers gratis le corresponden por comisión.
-            </p>
+      <div class="space-y-3">
+        <!-- Lista Agrupada de Vendedores idéntica a la preview iOS 27 (con desplegable al tocar) -->
+        ${workersList.length === 0 ? `
+          <div class="ios-glass-card p-4 text-center text-xs text-slate-400">
+            Aún no has creado almacenes de trabajadores.
+            <button type="button" onclick="window.app.openWarehouseModal()" class="text-emerald-400 font-semibold ml-1 underline">+ Añadir trabajador</button>
           </div>
+        ` : `
+          <div class="ios-grouped-list">
+            ${workersList.map(w => `
+              <details class="ios-grouped-accordion">
+                <summary>
+                  <div>
+                    <div class="text-sm font-semibold text-white">${this._escapeHtml(w.workerName || w.name)}</div>
+                    <div class="text-xs text-slate-400 mt-0.5">
+                      ${w.unitsTowardNextFreeVaper}/${w.rewardEveryNUnits} hacia próximo regalo${w.pendingFreeVapers > 0 ? ` · <span class="text-emerald-300 font-medium">${w.pendingFreeVapers} pendiente${w.pendingFreeVapers === 1 ? '' : 's'}</span>` : ''}
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-sm font-bold ${w.pendingMoneyToDeliver > 0 ? 'text-amber-300' : 'text-emerald-400'} tabular-nums">
+                      ${w.pendingMoneyToDeliver.toFixed(2)} €
+                    </div>
+                    <div class="text-xs text-slate-400">${w.pendingMoneyToDeliver > 0 ? 'Por entregar' : 'Al día'}</div>
+                  </div>
+                </summary>
+                <div class="ios-grouped-accordion-body space-y-3">
+                  <div class="flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+                    <span>Vendidos total: <strong class="text-white">${w.allTimeUnitsSold} uds</strong></span>
+                    <span>Recaudado: <strong class="text-white">${w.totalCollectedPaid.toFixed(2)} €</strong> (💵 ${w.collectedCash.toFixed(0)}€ / 💳 ${w.collectedCard.toFixed(0)}€)</span>
+                    <span>Liquidado: <strong class="text-emerald-400">${w.cashSettledAmount.toFixed(2)} €</strong></span>
+                  </div>
+
+                  <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div class="h-full bg-emerald-400 rounded-full" style="width: ${Math.min(100, w.nextFreeVaperProgressPct)}%"></div>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button 
+                      type="button"
+                      onclick="window.app.openSettleCashModal('${w.warehouseId}', ${w.pendingMoneyToDeliver})"
+                      class="btn-pressable py-2 px-3 rounded-xl bg-white/15 hover:bg-white/20 text-white text-xs font-semibold"
+                    >💶 Liquidar dinero</button>
+                    <button 
+                      type="button"
+                      onclick="window.app.openDeliverRewardModal('${w.warehouseId}', ${Math.max(1, w.pendingFreeVapers)})"
+                      class="btn-pressable py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/35 text-emerald-200 text-xs font-semibold"
+                    >🎁 Entregar regalo (${w.pendingFreeVapers})</button>
+                    <button 
+                      type="button"
+                      onclick="window.app.openWarehouseModal('${w.warehouseId}')"
+                      class="btn-pressable py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-medium"
+                    >⚙️ Comisión (${w.rewardFreeUnits}/${w.rewardEveryNUnits})</button>
+                  </div>
+                </div>
+              </details>
+            `).join('')}
+          </div>
+        `}
+
+        <!-- Resumen global de trabajadores y botón + Nuevo trabajador -->
+        <div class="flex items-center justify-between px-1 text-xs text-slate-400">
+          <span>Total pendiente: <strong class="text-white tabular-nums">${workerAccounts.totalPendingMoneyFromWorkers.toFixed(2)} €</strong> · <strong class="text-emerald-400">${workerAccounts.totalPendingFreeVapersAllWorkers} regalo(s)</strong></span>
           <button 
             type="button"
             onclick="window.app.openWarehouseModal()"
-            class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
-          >+ Nuevo Trabajador</button>
-        </div>
-
-        <!-- Resumen Global de Trabajadores Secundarios -->
-        <div class="grid grid-cols-2 gap-2.5 mb-3">
-          <div class="bg-slate-950/65 p-3 rounded-xl border border-amber-500/35">
-            <div class="text-[10px] text-amber-300 uppercase font-bold">💶 Dinero en Manos de Trabajadores</div>
-            <div class="text-xl font-black text-white mt-0.5">${workerAccounts.totalPendingMoneyFromWorkers.toFixed(2)}€</div>
-            <div class="text-[10px] text-slate-400">Pendiente de entregarte a ti</div>
-          </div>
-
-          <div class="bg-slate-950/65 p-3 rounded-xl border border-emerald-500/35">
-            <div class="text-[10px] text-emerald-300 uppercase font-bold">🎁 Vapers de Regalo Pendientes</div>
-            <div class="text-xl font-black text-emerald-400 mt-0.5">${workerAccounts.totalPendingFreeVapersAllWorkers} vaper(s)</div>
-            <div class="text-[10px] text-slate-400">Ganados por tus trabajadores</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          ${workersList.length === 0 ? `
-            <div class="col-span-full bg-slate-900/70 p-4 rounded-2xl border border-slate-800 text-center text-xs text-slate-400">
-              Aún no has creado almacenes de trabajadores secundarios. Pulsa <strong>+ Nuevo Trabajador</strong> para empezar.
-            </div>
-          ` : workersList.map(w => `
-            <div class="bg-slate-900/90 p-3.5 rounded-2xl border ${w.pendingFreeVapers > 0 ? 'border-emerald-500/50' : 'border-slate-700/70'}">
-              <div class="flex items-start justify-between gap-2 mb-2.5">
-                <div class="flex items-center gap-2">
-                  <span class="text-xl">${w.icon || '👤'}</span>
-                  <div>
-                    <h4 class="text-sm font-black text-white">${this._escapeHtml(w.name)}</h4>
-                    <div class="text-[11px] text-slate-300">
-                      ${w.workerName ? `👤 ${this._escapeHtml(w.workerName)} • ` : ''}Vendidos: <strong>${w.allTimeUnitsSold} uds</strong>
-                    </div>
-                  </div>
-                </div>
-                <button 
-                  type="button"
-                  onclick="window.app.openWarehouseModal('${w.warehouseId}')"
-                  class="btn-pressable bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2 py-1 rounded-lg text-[10px] font-bold"
-                  title="Cambiar regla de comisión de este trabajador"
-                >⚙️ ${w.rewardFreeUnits} gratis / ${w.rewardEveryNUnits} uds</button>
-              </div>
-
-              <!-- Recuadro Destacado de Vapers de Regalo -->
-              <div class="bg-emerald-950/35 p-3 rounded-xl border border-emerald-500/30 mb-2.5">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-xs font-extrabold text-emerald-300">🎁 Le tienes que regalar:</span>
-                  <span class="text-base font-black ${w.pendingFreeVapers > 0 ? 'text-emerald-400 animate-pulse' : 'text-slate-300'}">
-                    ${w.pendingFreeVapers} ${w.pendingFreeVapers === 1 ? 'vaper' : 'vapers'}
-                  </span>
-                </div>
-                <div class="flex items-center justify-between text-[10px] text-slate-300 mb-2">
-                  <span>Ganados total: <strong>${w.earnedFreeVapers}</strong></span>
-                  <span>Ya entregados: <strong>${w.deliveredFreeVapers}</strong></span>
-                </div>
-
-                <!-- Barra de progreso hacia el próximo vaper gratis -->
-                <div class="text-[10px] text-slate-300 mb-1 flex justify-between">
-                  <span>Progreso próximo regalo: <strong>${w.unitsTowardNextFreeVaper}/${w.rewardEveryNUnits} vendidos</strong></span>
-                  <span class="text-emerald-300 font-semibold">Faltan ${w.unitsNeededForNextFreeVaper} uds</span>
-                </div>
-                <div class="progress-track mb-2.5">
-                  <div class="progress-fill-emerald" style="width: ${Math.min(100, w.nextFreeVaperProgressPct)}%"></div>
-                </div>
-
-                <button 
-                  type="button"
-                  onclick="window.app.openDeliverRewardModal('${w.warehouseId}', ${Math.max(1, w.pendingFreeVapers)})"
-                  class="btn-pressable w-full py-2 px-3 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5"
-                >
-                  <span>🎁</span> Entregar Vaper Gratis a ${this._escapeHtml(w.workerName || w.name)}
-                </button>
-              </div>
-
-              <!-- Recuadro de Liquidación de Dinero -->
-              <div class="bg-slate-950/65 p-3 rounded-xl border border-slate-800">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-xs font-bold text-slate-300">💶 Pendiente de entregarte:</span>
-                  <span class="text-base font-black ${w.pendingMoneyToDeliver > 0 ? 'text-amber-400' : 'text-emerald-400'}">
-                    ${w.pendingMoneyToDeliver.toFixed(2)}€
-                  </span>
-                </div>
-                <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-400 mb-2.5 gap-1">
-                  <span>Recaudado: <strong class="text-white">${w.totalCollectedPaid.toFixed(2)}€</strong> (💵 ${w.collectedCash.toFixed(0)}€ / 💳 ${w.collectedCard.toFixed(0)}€)</span>
-                  <span>Liquidado: <strong class="text-emerald-400">${w.cashSettledAmount.toFixed(2)}€</strong></span>
-                </div>
-
-                <button 
-                  type="button"
-                  onclick="window.app.openSettleCashModal('${w.warehouseId}', ${w.pendingMoneyToDeliver})"
-                  class="btn-pressable w-full py-2 px-3 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200 text-xs font-bold flex items-center justify-center gap-1.5"
-                >
-                  <span>💶</span> Recibir / Liquidar Dinero
-                </button>
-              </div>
-            </div>
-          `).join('')}
+            class="text-emerald-400 hover:text-emerald-300 font-semibold"
+          >+ Nuevo trabajador</button>
         </div>
       </div>
     `;
@@ -5123,111 +4908,43 @@ class AppController {
     const trendPositive = trendVal >= 0;
 
     return `
-      <!-- GRÁFICA 1: FACTURACIÓN EN FUNCIÓN DEL TIEMPO (€) -->
-      <div class="ios-card ios-card-glow-emerald mb-4">
-        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
-          <div>
-            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-              <span>📈</span> Gráfica 1: Facturación en Función del Tiempo (€)
-            </h3>
-            <p class="text-[11px] text-slate-300 mt-0.5">
-              Curva de ingresos y beneficio neto (${activeFilterTitle}) • Toca cualquier punto para inspeccionar
-            </p>
-          </div>
-          <span class="badge ${trendPositive ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px]">
-            ${trendPositive ? '↗' : '↘'} ${trendPositive ? '+' : ''}${trendVal}% tendencia
+      <!-- GRÁFICA 1: FACTURACIÓN EN FUNCIÓN DEL TIEMPO (€) ESTILO iOS 27 PREVIEW -->
+      <div class="ios-glass-card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-semibold text-white">Evolución (${scaleLabels[scale]})</span>
+          <span class="text-xs ${trendPositive ? 'text-emerald-400' : 'text-rose-400'} font-medium tabular-nums">
+            ${trendPositive ? '+' : ''}${trendVal} %
           </span>
         </div>
 
-        <!-- Controles de Escala y Modo -->
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div class="flex items-center gap-1 overflow-x-auto no-scrollbar">
-            ${Object.entries(scaleLabels).map(([scKey, scLabel]) => `
-              <button 
-                type="button"
-                onclick="window.app.setTimeSeriesScale('revenue', '${scKey}')"
-                class="ts-mini-pill btn-pressable ${scale === scKey ? 'active-emerald' : ''}"
-              >${scLabel}</button>
-            `).join('')}
-          </div>
-
-          <div class="flex items-center gap-1">
-            <button 
-              type="button"
-              onclick="window.app.setTimeSeriesMode('revenue', 'interval')"
-              class="ts-mini-pill btn-pressable ${mode === 'interval' ? 'active-emerald' : ''}"
-            >📊 Por Tramo</button>
-            <button 
-              type="button"
-              onclick="window.app.setTimeSeriesMode('revenue', 'cumulative')"
-              class="ts-mini-pill btn-pressable ${mode === 'cumulative' ? 'active-emerald' : ''}"
-            >📈 Curva Acumulada</button>
-          </div>
-        </div>
-
-        <!-- Resumen de KPIs de la Serie -->
-        <div class="grid grid-cols-3 gap-2 text-center mb-3">
-          <div class="bg-slate-950/60 p-2 rounded-xl border border-white/10">
-            <div class="text-[9px] text-slate-400 uppercase font-bold">Total en Serie (${scaleLabels[scale]})</div>
-            <div class="text-sm font-black text-white">${meta.totalBilled.toFixed(2)}€</div>
-            <div class="text-[10px] text-emerald-400 font-semibold">+${meta.totalProfit.toFixed(2)}€ benef.</div>
-          </div>
-          <div class="bg-slate-950/60 p-2 rounded-xl border border-white/10">
-            <div class="text-[9px] text-slate-400 uppercase font-bold">Pico Máximo</div>
-            <div class="text-sm font-black text-emerald-300">${meta.maxBilled.toFixed(2)}€</div>
-            <div class="text-[10px] text-slate-400 truncate">${this._escapeHtml(meta.maxBilledLabel)}</div>
-          </div>
-          <div class="bg-slate-950/60 p-2 rounded-xl border border-white/10">
-            <div class="text-[9px] text-slate-400 uppercase font-bold">Media por Tramo</div>
-            <div class="text-sm font-black text-indigo-300">${meta.avgBilledPerPoint.toFixed(2)}€</div>
-            <div class="text-[10px] text-slate-400">Promedio</div>
-          </div>
-        </div>
-
-        <!-- Panel Inspector Táctil del Punto Seleccionado -->
-        <div id="revenueChartInspector" class="ts-inspector-bar">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
-            <span class="text-xs font-black text-white">${this._escapeHtml(inspectedPt.label)}</span>
-            <span class="text-[10px] text-slate-400">(${inspectedPt.transactions} ${inspectedPt.transactions === 1 ? 'venta' : 'ventas'})</span>
-          </div>
-          <div class="flex flex-wrap items-center gap-3 text-xs">
-            <span>Tramo: <strong class="text-white">${inspectedPt.billed.toFixed(2)}€</strong></span>
-            <span>Beneficio: <strong class="text-emerald-400">+${inspectedPt.profit.toFixed(2)}€</strong></span>
-            <span>Acumulado: <strong class="text-indigo-300">${inspectedPt.cumulativeBilled.toFixed(2)}€</strong></span>
-          </div>
-        </div>
-
         <!-- Lienzo SVG Interactivo -->
-        <div class="ts-chart-wrapper">
+        <div class="ts-chart-wrapper mb-2.5">
           <svg viewBox="0 0 ${svgW} ${svgH}" class="ts-svg-canvas">
             <defs>
               <linearGradient id="revAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#10b981" stop-opacity="0.45"/>
-                <stop offset="100%" stop-color="#10b981" stop-opacity="0.02"/>
+                <stop offset="0%" stop-color="#34d399" stop-opacity="0.38"/>
+                <stop offset="100%" stop-color="#34d399" stop-opacity="0.0"/>
               </linearGradient>
               <linearGradient id="revBarGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#34d399" stop-opacity="0.32"/>
-                <stop offset="100%" stop-color="#10b981" stop-opacity="0.08"/>
+                <stop offset="0%" stop-color="#34d399" stop-opacity="0.25"/>
+                <stop offset="100%" stop-color="#10b981" stop-opacity="0.05"/>
               </linearGradient>
             </defs>
 
             <!-- Líneas guía horizontales y etiquetas del Eje Y (€) -->
-            <line x1="${padLeft}" y1="${padTop}" x2="${svgW - padRight}" y2="${padTop}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="3,3"/>
+            <line x1="${padLeft}" y1="${padTop}" x2="${svgW - padRight}" y2="${padTop}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3"/>
             <text x="${padLeft - 6}" y="${padTop + 4}" text-anchor="end" fill="#94a3b8" font-size="9.5" font-weight="600">${Math.round(maxY)}€</text>
 
-            <line x1="${padLeft}" y1="${(padTop + plotH / 2).toFixed(1)}" x2="${svgW - padRight}" y2="${(padTop + plotH / 2).toFixed(1)}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3"/>
+            <line x1="${padLeft}" y1="${(padTop + plotH / 2).toFixed(1)}" x2="${svgW - padRight}" y2="${(padTop + plotH / 2).toFixed(1)}" stroke="rgba(255,255,255,0.05)" stroke-dasharray="3,3"/>
             <text x="${padLeft - 6}" y="${(padTop + plotH / 2 + 3).toFixed(1)}" text-anchor="end" fill="#64748b" font-size="9.5">${Math.round(maxY / 2)}€</text>
 
-            <line x1="${padLeft}" y1="${baseLineY}" x2="${svgW - padRight}" y2="${baseLineY}" stroke="rgba(255,255,255,0.14)"/>
+            <line x1="${padLeft}" y1="${baseLineY}" x2="${svgW - padRight}" y2="${baseLineY}" stroke="rgba(255,255,255,0.12)"/>
             <text x="${padLeft - 6}" y="${baseLineY + 3}" text-anchor="end" fill="#64748b" font-size="9.5">0€</text>
 
-            <!-- Línea punteada de Media (en modo por tramo) -->
             ${mode === 'interval' && meta.avgBilledPerPoint > 0 ? `
-              <line x1="${padLeft}" y1="${avgY.toFixed(1)}" x2="${svgW - padRight}" y2="${avgY.toFixed(1)}" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,4" opacity="0.75"/>
+              <line x1="${padLeft}" y1="${avgY.toFixed(1)}" x2="${svgW - padRight}" y2="${avgY.toFixed(1)}" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,4" opacity="0.65"/>
             ` : ''}
 
-            <!-- Barras sutiles de fondo cuando estamos en modo Por Tramo -->
             ${mode === 'interval' ? coordsBilled.map((c) => {
               if (c.val <= 0) return '';
               const bw = Math.max(4, Math.min(20, colW * 0.55));
@@ -5235,12 +4952,10 @@ class AppController {
               return `<rect x="${(c.x - bw / 2).toFixed(1)}" y="${c.y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="url(#revBarGrad)" />`;
             }).join('') : ''}
 
-            <!-- Área bajo la curva y curvas de Facturación y Beneficio -->
             ${areaPathBilled ? `<path d="${areaPathBilled}" fill="url(#revAreaGrad)" />` : ''}
-            ${linePathProfit ? `<path d="${linePathProfit}" fill="none" stroke="#818cf8" stroke-width="1.8" stroke-dasharray="3,2" opacity="0.85" />` : ''}
-            ${linePathBilled ? `<path d="${linePathBilled}" fill="none" stroke="#10b981" stroke-width="2.6" stroke-linecap="round" />` : ''}
+            ${linePathProfit ? `<path d="${linePathProfit}" fill="none" stroke="#818cf8" stroke-width="1.8" stroke-dasharray="3,2" opacity="0.8" />` : ''}
+            ${linePathBilled ? `<path d="${linePathBilled}" fill="none" stroke="#34d399" stroke-width="2.6" stroke-linecap="round" />` : ''}
 
-            <!-- Puntos, etiquetas del eje X y columnas interactivas -->
             ${coordsBilled.map((c, i) => {
               const isSelected = i === activeIdx;
               const showLabel = this._shouldShowXAxisLabel(i, series.length);
@@ -5281,12 +4996,72 @@ class AppController {
               `;
             }).join('')}
           </svg>
-          <div class="flex items-center justify-center gap-4 text-[10px] text-slate-400 mt-1">
-            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span> Facturación (€)</span>
-            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-indigo-400 inline-block"></span> Beneficio Neto (€)</span>
-            ${mode === 'interval' ? '<span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-amber-400 inline-block"></span> Media</span>' : ''}
+        </div>
+
+        <!-- Panel Inspector Táctil del Punto Seleccionado -->
+        <div id="revenueChartInspector" class="ts-inspector-bar mb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+            <span class="text-xs font-semibold text-white">${this._escapeHtml(inspectedPt.label)}</span>
+            <span class="text-[10px] text-slate-400">(${inspectedPt.transactions} ${inspectedPt.transactions === 1 ? 'venta' : 'ventas'})</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 text-xs tabular-nums">
+            <span>Tramo: <strong class="text-white">${inspectedPt.billed.toFixed(2)}€</strong></span>
+            <span>Beneficio: <strong class="text-emerald-400">+${inspectedPt.profit.toFixed(2)}€</strong></span>
+            <span>Acum.: <strong class="text-indigo-300">${inspectedPt.cumulativeBilled.toFixed(2)}€</strong></span>
           </div>
         </div>
+
+        <!-- Desplegable con controles de escala (24h, 7d, 30d, 12m), modo y picos -->
+        <details class="ios-accordion mb-0">
+          <summary>
+            <span>Escala y detalles de gráfica (${scaleLabels[scale]})</span>
+          </summary>
+          <div class="ios-accordion-body space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                ${Object.entries(scaleLabels).map(([scKey, scLabel]) => `
+                  <button 
+                    type="button"
+                    onclick="window.app.setTimeSeriesScale('revenue', '${scKey}')"
+                    class="ts-mini-pill btn-pressable ${scale === scKey ? 'active-emerald' : ''}"
+                  >${scLabel}</button>
+                `).join('')}
+              </div>
+
+              <div class="flex items-center gap-1">
+                <button 
+                  type="button"
+                  onclick="window.app.setTimeSeriesMode('revenue', 'interval')"
+                  class="ts-mini-pill btn-pressable ${mode === 'interval' ? 'active-emerald' : ''}"
+                >Por tramo</button>
+                <button 
+                  type="button"
+                  onclick="window.app.setTimeSeriesMode('revenue', 'cumulative')"
+                  class="ts-mini-pill btn-pressable ${mode === 'cumulative' ? 'active-emerald' : ''}"
+                >Acumulada</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 text-center tabular-nums">
+              <div class="bg-white/5 p-2 rounded-xl border border-white/10">
+                <div class="text-[9px] text-slate-400 uppercase">Total serie</div>
+                <div class="text-xs font-bold text-white">${meta.totalBilled.toFixed(2)}€</div>
+                <div class="text-[10px] text-emerald-400">+${meta.totalProfit.toFixed(2)}€</div>
+              </div>
+              <div class="bg-white/5 p-2 rounded-xl border border-white/10">
+                <div class="text-[9px] text-slate-400 uppercase">Pico máximo</div>
+                <div class="text-xs font-bold text-emerald-300">${meta.maxBilled.toFixed(2)}€</div>
+                <div class="text-[10px] text-slate-400 truncate">${this._escapeHtml(meta.maxBilledLabel)}</div>
+              </div>
+              <div class="bg-white/5 p-2 rounded-xl border border-white/10">
+                <div class="text-[9px] text-slate-400 uppercase">Media</div>
+                <div class="text-xs font-bold text-indigo-300">${meta.avgBilledPerPoint.toFixed(2)}€</div>
+                <div class="text-[10px] text-slate-400">Por tramo</div>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     `;
   }
@@ -5885,326 +5660,270 @@ class AppController {
     const workerWarehouses = warehouses.filter(w => !w.isMain);
 
     let html = `
-      <!-- 0. BASE DE DATOS PERMANENTE EN LA NUBE (SUPABASE POSTGRESQL + REALTIME) -->
-      <div class="ios-card ${sbConnected ? 'ios-card-glow-emerald' : 'ios-card-glow-amber'} mb-4">
-        <div class="flex items-start justify-between gap-2 mb-2">
-          <div>
-            <h3 class="text-sm font-black text-white flex items-center gap-2">
-              <span>🗄️</span> Base de Datos Permanente (Supabase)
-            </h3>
-            <p class="text-[11px] text-slate-300 mt-0.5">
-              Guarda todo tu catálogo, almacenes, ventas, reservas y liquidaciones para siempre en la nube con sincronización en vivo.
+      <!-- Grupo 1 iOS 27 Settings: Nube, Avisos y Trabajadores (Desplegables al tocar) -->
+      <div class="ios-grouped-list mb-4">
+        <!-- Fila 1: Base de datos Supabase -->
+        <details class="ios-grouped-accordion">
+          <summary>
+            <span class="text-sm text-white font-medium">Base de datos Supabase</span>
+            <span class="text-xs ${sbConnected ? 'text-emerald-400' : sbConfigured ? 'text-amber-300' : 'text-slate-400'} font-medium">
+              ${sbConnected ? 'Conectado' : sbConfigured ? 'Configurado' : 'Local'} ›
+            </span>
+          </summary>
+          <div class="ios-grouped-accordion-body space-y-3">
+            <p class="text-xs text-slate-400">
+              Sincronización en tiempo real en la nube para catálogo, almacenes, ventas, reservas y liquidaciones.
             </p>
-          </div>
-          <span class="badge ${sbConnected ? 'badge-ok-stock' : sbConfigured ? 'badge-fiado' : 'badge-low-stock'} text-[10px] flex-shrink-0">
-            ${sbConnected ? '● En Vivo' : sbConfigured ? 'Configurado' : 'Solo Local'}
-          </span>
-        </div>
-
-        <div class="bg-slate-950/70 p-3 rounded-2xl border border-white/10 space-y-2.5 mb-2.5">
-          <div>
-            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-1">Supabase Project URL</label>
-            <input
-              type="url"
-              id="inputSupabaseUrl"
-              value="${this._escapeHtml(sbCfg.url || '')}"
-              placeholder="https://xxxxxxxxxxxx.supabase.co"
-              class="w-full bg-slate-900 text-white font-mono text-xs px-3 py-2 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div>
-            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-1">Supabase Anon Public Key</label>
-            <input
-              type="text"
-              id="inputSupabaseAnonKey"
-              value="${this._escapeHtml(sbCfg.anonKey || '')}"
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              class="w-full bg-slate-900 text-white font-mono text-xs px-3 py-2 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          ${this.supabaseAgent.lastError ? `
-            <div class="text-[11px] text-rose-400 font-semibold">⚠️ Error: ${this._escapeHtml(this.supabaseAgent.lastError)}</div>
-          ` : ''}
-
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-            <button
-              type="button"
-              onclick="window.app.saveSupabaseConfigFromView()"
-              class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-xl shadow-lg shadow-emerald-900/30"
-            >🔗 Conectar Supabase</button>
-            <button
-              type="button"
-              onclick="window.app.pushLocalToSupabaseNow()"
-              class="btn-pressable bg-indigo-600/80 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-3 rounded-xl"
-              ${!sbConfigured ? 'disabled style="opacity:0.45"' : ''}
-            >⬆️ Subir Datos Locales</button>
-            <button
-              type="button"
-              onclick="window.app.pullFromSupabaseNow()"
-              class="btn-pressable bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl border border-slate-700"
-              ${!sbConfigured ? 'disabled style="opacity:0.45"' : ''}
-            >⬇️ Descargar Nube</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 1. NOTIFICACIONES AL MÓVIL CON NTFY.SH Y SINCRONIZACIÓN EN LA NUBE -->
-      <div class="ios-card ios-card-glow-emerald mb-4">
-        <div class="flex items-start justify-between gap-2 mb-2">
-          <div>
-            <h3 class="text-sm font-black text-white flex items-center gap-2">
-              <span>🔔</span> Notificaciones al iPhone (ntfy) & Nube en Vivo
-            </h3>
-            <p class="text-[11px] text-slate-300 mt-0.5">
-              Recibe una notificación en tu iPhone al instante cada vez que un trabajador venda o reserve un vaper.
-            </p>
-          </div>
-          <span id="ntfyStatusBadge" class="badge ${ntfy.enabled ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px]">
-            ${ntfy.enabled ? '● Activo' : 'Pausado'}
-          </span>
-        </div>
-
-        <div class="bg-slate-950/70 p-3 rounded-2xl border border-emerald-500/30 mb-3 space-y-2.5">
-          <div>
-            <label class="text-[10px] uppercase tracking-wider text-emerald-300 font-bold block mb-1">Tu Canal Privado de ntfy (Topic)</label>
-            <div class="flex gap-1.5">
+            <div>
+              <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Supabase Project URL</label>
+              <input
+                type="url"
+                id="inputSupabaseUrl"
+                value="${this._escapeHtml(sbCfg.url || '')}"
+                placeholder="https://xxxxxxxxxxxx.supabase.co"
+                class="w-full bg-white/10 text-white font-mono text-xs px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-white/30"
+              />
+            </div>
+            <div>
+              <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Supabase Anon Public Key</label>
               <input
                 type="text"
-                id="inputNtfyTopic"
-                value="${this._escapeHtml(ntfy.topic)}"
-                class="flex-1 bg-slate-900 text-white font-mono text-xs px-3 py-2 rounded-xl border border-slate-700 focus:outline-none focus:border-emerald-500"
+                id="inputSupabaseAnonKey"
+                value="${this._escapeHtml(sbCfg.anonKey || '')}"
+                placeholder="sb_publishable_... o eyJ..."
+                class="w-full bg-white/10 text-white font-mono text-xs px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-white/30"
               />
+            </div>
+            ${this.supabaseAgent.lastError ? `
+              <div class="text-[11px] text-rose-400 font-semibold">⚠️ Error: ${this._escapeHtml(this.supabaseAgent.lastError)}</div>
+            ` : ''}
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
               <button
                 type="button"
-                onclick="window.app.copyNtfyTopic()"
-                class="btn-pressable bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-slate-700"
-              >📋 Copiar</button>
+                onclick="window.app.saveSupabaseConfigFromView()"
+                class="btn-pressable bg-emerald-500 text-slate-950 text-xs font-semibold py-2.5 px-3 rounded-xl"
+              >Conectar Supabase</button>
+              <button
+                type="button"
+                onclick="window.app.pushLocalToSupabaseNow()"
+                class="btn-pressable bg-white/10 hover:bg-white/15 text-white text-xs font-medium py-2.5 px-3 rounded-xl"
+                ${!sbConfigured ? 'disabled style="opacity:0.45"' : ''}
+              >Subir datos locales</button>
+              <button
+                type="button"
+                onclick="window.app.pullFromSupabaseNow()"
+                class="btn-pressable bg-white/10 hover:bg-white/15 text-white text-xs font-medium py-2.5 px-3 rounded-xl"
+                ${!sbConfigured ? 'disabled style="opacity:0.45"' : ''}
+              >Descargar nube</button>
             </div>
           </div>
+        </details>
 
-          <div class="flex flex-wrap gap-2 text-[11px]">
-            <label class="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-800 cursor-pointer">
-              <input type="checkbox" id="chkNtfyEnabled" ${ntfy.enabled ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
-              <span class="text-slate-200 font-semibold">Activar avisos</span>
-            </label>
-            <label class="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-800 cursor-pointer">
-              <input type="checkbox" id="chkNtfyWorkers" ${ntfy.notifyWorkerSales ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
-              <span class="text-slate-200">Ventas trabajadores</span>
-            </label>
-            <label class="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-800 cursor-pointer">
-              <input type="checkbox" id="chkNtfyRes" ${ntfy.notifyReservations ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
-              <span class="text-slate-200">Reservas</span>
-            </label>
-            <label class="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-800 cursor-pointer">
-              <input type="checkbox" id="chkNtfyBoss" ${ntfy.notifyBossSales ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
-              <span class="text-slate-200">Mis propias ventas</span>
-            </label>
+        <!-- Fila 2: Avisos iPhone (ntfy) -->
+        <details class="ios-grouped-accordion">
+          <summary>
+            <span class="text-sm text-white font-medium">Avisos iPhone (ntfy)</span>
+            <span id="ntfyStatusBadge" class="text-xs ${ntfy.enabled ? 'text-emerald-400' : 'text-slate-400'} font-medium">
+              ${ntfy.enabled ? 'Activo' : 'Pausado'} ›
+            </span>
+          </summary>
+          <div class="ios-grouped-accordion-body space-y-3">
+            <div>
+              <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Canal privado de ntfy (Topic)</label>
+              <div class="flex gap-1.5">
+                <input
+                  type="text"
+                  id="inputNtfyTopic"
+                  value="${this._escapeHtml(ntfy.topic)}"
+                  class="flex-1 bg-white/10 text-white font-mono text-xs px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-white/30"
+                />
+                <button
+                  type="button"
+                  onclick="window.app.copyNtfyTopic()"
+                  class="btn-pressable bg-white/10 hover:bg-white/15 text-white text-xs font-medium px-3 py-2 rounded-xl"
+                >Copiar</button>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 text-xs">
+              <label class="flex items-center gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 cursor-pointer">
+                <input type="checkbox" id="chkNtfyEnabled" ${ntfy.enabled ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
+                <span class="text-slate-200 font-medium">Activar avisos</span>
+              </label>
+              <label class="flex items-center gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 cursor-pointer">
+                <input type="checkbox" id="chkNtfyWorkers" ${ntfy.notifyWorkerSales ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
+                <span class="text-slate-200">Ventas trabajadores</span>
+              </label>
+              <label class="flex items-center gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 cursor-pointer">
+                <input type="checkbox" id="chkNtfyRes" ${ntfy.notifyReservations ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
+                <span class="text-slate-200">Reservas</span>
+              </label>
+              <label class="flex items-center gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 cursor-pointer">
+                <input type="checkbox" id="chkNtfyBoss" ${ntfy.notifyBossSales ? 'checked' : ''} onchange="window.app.saveNtfySettingsFromView()" class="accent-emerald-500" />
+                <span class="text-slate-200">Mis propias ventas</span>
+              </label>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onclick="window.app.saveNtfySettingsFromView(true)"
+                class="btn-pressable bg-white/10 hover:bg-white/15 text-white text-xs font-medium py-2.5 px-3 rounded-xl"
+              >Guardar canal</button>
+              <button
+                type="button"
+                onclick="window.app.testNtfyNotification()"
+                class="btn-pressable bg-emerald-500 text-slate-950 text-xs font-semibold py-2.5 px-3 rounded-xl"
+              >Probar notificación</button>
+              <button
+                type="button"
+                onclick="window.app.syncFullStateToCloud()"
+                class="btn-pressable bg-white/10 hover:bg-white/15 text-white text-xs font-medium py-2.5 px-3 rounded-xl"
+              >Sincronizar trabajadores</button>
+            </div>
+
+            <div class="text-[11px] text-slate-400 pt-1">
+              En la app <strong>ntfy</strong> de tu iPhone, suscríbete al canal <code id="ntfyGuideTopicCode" class="px-1.5 py-0.5 rounded bg-white/10 text-emerald-300 font-semibold">${this._escapeHtml(ntfy.topic)}</code>.
+            </div>
           </div>
+        </details>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-            <button
-              type="button"
-              onclick="window.app.saveNtfySettingsFromView(true)"
-              class="btn-pressable bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl border border-slate-700"
-            >💾 Guardar Canal</button>
-            <button
-              type="button"
-              onclick="window.app.testNtfyNotification()"
-              class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-xl shadow-lg shadow-emerald-900/30"
-            >🔔 Probar Notificación</button>
-            <button
-              type="button"
-              onclick="window.app.syncFullStateToCloud()"
-              class="btn-pressable bg-indigo-600/80 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-3 rounded-xl"
-            >☁️ Sincronizar Trabajadores</button>
-          </div>
-        </div>
+        <!-- Fila 3: Trabajadores, Almacenes y PINs -->
+        <details class="ios-grouped-accordion">
+          <summary>
+            <span class="text-sm text-white font-medium">Trabajadores y almacenes</span>
+            <span class="text-xs text-slate-400">${warehouses.length} almacenes ›</span>
+          </summary>
+          <div class="ios-grouped-accordion-body space-y-3">
+            <!-- PIN de Jefe y Cambiar Perfil -->
+            <div class="bg-white/5 p-3 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div class="text-xs font-semibold text-white">PIN de Jefe</div>
+                <div class="text-[10px] text-slate-400">Para volver al modo Jefe desde otro móvil</div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  id="inputSettingsBossPin"
+                  value="${this._escapeHtml(bossPin)}"
+                  class="w-20 text-center bg-white/10 text-white font-bold tracking-widest text-xs py-1.5 rounded-lg border border-white/10"
+                />
+                <button
+                  type="button"
+                  onclick="window.app.saveBossPinFromSettings()"
+                  class="btn-pressable bg-white text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg"
+                >Guardar</button>
+                <button
+                  type="button"
+                  onclick="window.app.openPinAuthModal()"
+                  class="btn-pressable bg-white/10 text-slate-200 text-xs font-medium px-2.5 py-1.5 rounded-lg"
+                >Perfil</button>
+              </div>
+            </div>
 
-        <details class="ios-accordion">
-          <summary>📱 Cómo conectar tu iPhone en 20 segundos</summary>
-          <div class="ios-accordion-body text-[11px] text-slate-300 space-y-1.5 leading-relaxed">
-            <ol class="list-decimal list-inside space-y-1">
-              <li>Descarga gratis la app <strong>ntfy</strong> en la App Store de tu iPhone.</li>
-              <li>Abre <strong>ntfy</strong>, toca el botón <strong>+</strong> y escribe tu canal: <code id="ntfyGuideTopicCode" class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-bold">${this._escapeHtml(ntfy.topic)}</code></li>
-              <li>¡Listo! Toca <strong>"🔔 Probar Notificación"</strong> arriba para comprobar que te vibra el iPhone.</li>
-            </ol>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-300">Almacenes y enlaces de trabajadores</span>
+              <button
+                type="button"
+                onclick="window.app.openWarehouseModal()"
+                class="text-emerald-400 hover:text-emerald-300 text-xs font-semibold"
+              >+ Añadir almacén</button>
+            </div>
+
+            <div class="space-y-2">
+              ${warehouses.map(wh => `
+                <div class="bg-white/5 p-3 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div>
+                    <div class="font-semibold text-white">${wh.icon || '🏠'} ${this._escapeHtml(wh.name)}</div>
+                    <div class="text-[10px] text-slate-400">
+                      ${wh.isMain ? 'Almacén Principal' : `${wh.workerName ? `${this._escapeHtml(wh.workerName)} · ` : ''}PIN: <strong class="text-indigo-300 font-mono">${this._escapeHtml(wh.workerPin || '----')}</strong>`}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    ${wh.isMain ? '' : `
+                      <button
+                        type="button"
+                        onclick="window.app.openWorkerInviteModal('${wh.id}')"
+                        class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                      >Enlace</button>
+                      <button
+                        type="button"
+                        onclick="window.app.enterWorkerView('${wh.id}')"
+                        class="btn-pressable bg-white/10 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                      >Probar</button>
+                    `}
+                    <button
+                      type="button"
+                      onclick="window.app.openWarehouseModal('${wh.id}')"
+                      class="btn-pressable bg-white/10 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                    >Editar</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
           </div>
         </details>
       </div>
 
-      <!-- 2. ACCESO LIMITADO DE TRABAJADORES Y PIN DE JEFE -->
-      <div class="ios-card ios-card-glow-indigo mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-black text-white flex items-center gap-2">
-            <span>🔐</span> Acceso Limitado de Trabajadores & PINs
-          </h3>
-          <button
-            type="button"
-            onclick="window.app.openPinAuthModal()"
-            class="btn-pressable bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40 text-[11px] font-bold px-2.5 py-1 rounded-xl"
-          >🔑 Cambiar Perfil</button>
-        </div>
+      <!-- Grupo 2 iOS 27 Settings: Copias de Seguridad, Almacenamiento y Reinicio -->
+      <div class="ios-grouped-list mb-6">
+        <button
+          type="button"
+          onclick="window.app.exportDataBackup()"
+          class="ios-grouped-row w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-white/5 transition"
+        >
+          <span class="text-sm text-white font-medium">Exportar copia JSON</span>
+          <span class="text-xs text-slate-400">›</span>
+        </button>
 
-        <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800 mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div class="text-xs font-bold text-white">👑 Tu PIN de Jefe</div>
-            <div class="text-[10px] text-slate-400">Sirve para volver al Modo Jefe desde el móvil de un trabajador</div>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <input
-              type="text"
-              inputmode="numeric"
-              id="inputSettingsBossPin"
-              value="${this._escapeHtml(bossPin)}"
-              class="w-20 text-center bg-slate-900 text-white font-black tracking-widest text-xs py-1.5 rounded-lg border border-slate-700"
-            />
-            <button
-              type="button"
-              onclick="window.app.saveBossPinFromSettings()"
-              class="btn-pressable bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg"
-            >Guardar</button>
-          </div>
-        </div>
+        <label class="ios-grouped-row w-full px-4 py-3.5 flex items-center justify-between cursor-pointer hover:bg-white/5 transition">
+          <span class="text-sm text-white font-medium">Restaurar copia</span>
+          <span class="text-xs text-slate-400">›</span>
+          <input type="file" id="importBackupInput" accept=".json" class="hidden" onchange="window.app.importDataBackup(event)"/>
+        </label>
 
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-bold text-slate-300">Enlaces Directos y PINs por Trabajador (${workerWarehouses.length})</span>
-          <button
-            type="button"
-            onclick="window.app.openWarehouseModal()"
-            class="text-emerald-400 hover:text-emerald-300 text-xs font-bold"
-          >+ Añadir Trabajador</button>
-        </div>
-
-        ${workerWarehouses.length === 0 ? `
-          <div class="text-xs text-slate-400 py-4 text-center bg-slate-900/60 rounded-xl border border-slate-800">
-            Añade un almacén para cada trabajador y aquí aparecerá su enlace privado de acceso limitado.
-          </div>
-        ` : `
-          <div class="space-y-2">
-            ${workerWarehouses.map(wh => `
-              <div class="bg-slate-900/85 p-3 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div>
-                  <div class="font-bold text-white">${wh.icon || '👤'} ${this._escapeHtml(wh.name)}</div>
-                  <div class="text-[10px] text-slate-400">
-                    ${wh.workerName ? `👤 ${this._escapeHtml(wh.workerName)} • ` : ''}PIN: <strong class="text-indigo-300 font-mono tracking-wider">${this._escapeHtml(wh.workerPin || '----')}</strong>
-                  </div>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onclick="window.app.openWorkerInviteModal('${wh.id}')"
-                    class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-lg text-[11px] font-bold"
-                  >📲 Enlace / Invitar</button>
-                  <button
-                    type="button"
-                    onclick="window.app.enterWorkerView('${wh.id}')"
-                    class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 px-2.5 py-1.5 rounded-lg text-[11px] font-bold"
-                  >👁️ Probar</button>
-                  <button
-                    type="button"
-                    onclick="window.app.openWarehouseModal('${wh.id}')"
-                    class="btn-pressable bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1.5 rounded-lg border border-slate-700 text-[11px]"
-                  >✏️</button>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        `}
-      </div>
-
-      <!-- 3. Gestión rápida de Almacenes y Trabajadores -->
-      <div class="ios-card mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <span>🏢</span> Todos los Almacenes (${warehouses.length})
-          </h3>
-          <button 
-            onclick="window.app.openWarehouseModal()"
-            class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl"
-          >+ Añadir</button>
-        </div>
-        <div class="space-y-2">
-          ${warehouses.map(wh => `
-            <div class="flex items-center justify-between bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-xs">
-              <div class="flex items-center gap-2">
-                <span class="text-base">${wh.icon || '🏠'}</span>
-                <div>
-                  <div class="font-bold text-white">${this._escapeHtml(wh.name)}</div>
-                  <div class="text-[10px] text-slate-400">${wh.isMain ? 'Almacén Principal' : `👤 ${this._escapeHtml(wh.workerName || 'Trabajador')} • PIN: ${this._escapeHtml(wh.workerPin || '----')}`}</div>
-                </div>
-              </div>
-              <button 
-                onclick="window.app.openWarehouseModal('${wh.id}')"
-                class="btn-pressable bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700 text-[11px] font-semibold"
-              >✏️ Editar</button>
+        <details class="ios-grouped-accordion">
+          <summary>
+            <span class="text-sm text-white font-medium">Estado del almacenamiento</span>
+            <span class="text-xs text-slate-400">${products.length} sabores · ${sales.length} ventas ›</span>
+          </summary>
+          <div class="ios-grouped-accordion-body text-xs text-slate-400 space-y-1.5">
+            <div class="flex justify-between">
+              <span>Sabores registrados:</span>
+              <span class="font-semibold text-white">${products.length}</span>
             </div>
-          `).join('')}
-        </div>
-      </div>
+            <div class="flex justify-between">
+              <span>Almacenes activos:</span>
+              <span class="font-semibold text-white">${warehouses.length}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Ventas históricas:</span>
+              <span class="font-semibold text-white">${sales.length}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Repartos de stock:</span>
+              <span class="font-semibold text-white">${transfers.length}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Modo Offline PWA:</span>
+              <span class="font-semibold text-emerald-400">Activo (${APP_VERSION})</span>
+            </div>
+          </div>
+        </details>
 
-      <!-- Copias de Seguridad -->
-      <div class="ios-card mb-4">
-        <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2">
-          <span>💾</span> Copias de Seguridad Locales (${APP_VERSION})
-        </h3>
-        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-          Tus datos (productos, stock por almacén, trabajadores, repartos y ventas) se guardan en este dispositivo (${this.storageAgent.isIndexedDBSupported ? 'IndexedDB' : 'LocalStorage'}).
-        </p>
-
-        <div class="grid grid-cols-2 gap-2">
-          <button 
-            onclick="window.app.exportDataBackup()"
-            class="btn-pressable bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold py-3 px-3 rounded-xl border border-slate-700 flex items-center justify-center gap-1.5"
-          >
-            <span>📥</span> Descargar Copia
-          </button>
-          
-          <label class="btn-pressable bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold py-3 px-3 rounded-xl border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer text-center">
-            <span>📤</span> Restaurar Copia
-            <input type="file" id="importBackupInput" accept=".json" class="hidden" onchange="window.app.importDataBackup(event)"/>
-          </label>
-        </div>
-      </div>
-
-      <!-- Estado y Gestión de Datos -->
-      <div class="ios-card mb-4">
-        <h3 class="text-sm font-bold text-white mb-2">Estado del Almacenamiento</h3>
-        <div class="text-xs text-slate-400 space-y-1.5 mb-4">
-          <div class="flex justify-between">
-            <span>Sabores / Productos registrados:</span>
-            <span class="font-bold text-white">${products.length}</span>
-          </div>
-          <div class="flex justify-between">
-            <span>Almacenes / Casas de trabajadores:</span>
-            <span class="font-bold text-white">${warehouses.length}</span>
-          </div>
-          <div class="flex justify-between">
-            <span>Ventas históricas registradas:</span>
-            <span class="font-bold text-white">${sales.length}</span>
-          </div>
-          <div class="flex justify-between">
-            <span>Repartos de stock registrados:</span>
-            <span class="font-bold text-white">${transfers.length}</span>
-          </div>
-          <div class="flex justify-between">
-            <span>Modo Offline:</span>
-            <span class="font-bold text-emerald-400">Activo (Cache PWA ${APP_VERSION})</span>
-          </div>
-        </div>
-
-        <div class="space-y-2 pt-2 border-t border-slate-700/60">
-          <button 
-            onclick="window.app.resetDemoData()"
-            class="w-full text-xs font-semibold text-emerald-400 hover:text-emerald-300 py-3 px-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-center flex items-center justify-center gap-1.5"
-          >
-            <span>🔄</span> Reiniciar Catálogo Oficial (10 Sabores • 6,70€ / 12€)
-          </button>
-        </div>
+        <button
+          type="button"
+          onclick="window.app.resetDemoData()"
+          class="ios-grouped-row w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-white/5 transition"
+        >
+          <span class="text-sm text-rose-400 font-medium">Reiniciar catálogo</span>
+          <span class="text-xs text-rose-400">›</span>
+        </button>
       </div>
 
       <div class="text-center text-[11px] text-slate-500 pb-12">
-        Gestor Privado de Inventario y Ventas Multi-Almacén ${APP_VERSION} (iOS 18 + Supabase + ntfy Live)<br/>
-        Arquitectura Modular por Agentes • Diseñado para iOS
+        VapeOS ${APP_VERSION} · Diseño iOS 27 Liquid Glass
       </div>
     `;
 
@@ -6682,118 +6401,100 @@ class AppController {
     const orders = ordersMetrics.orders;
 
     return `
-      <div class="ios-card ios-card-glow-indigo mb-4">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div>
-            <h3 class="text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-              <span>📦</span> Rendimiento y Métricas por Pedido (${orders.length})
-            </h3>
-            <p class="text-[11px] text-slate-300 mt-0.5">
-              Compara cuánto has invertido, facturado y ganado en cada pedido al proveedor.
-            </p>
-          </div>
+      <div class="space-y-3">
+        ${orders.map(ord => {
+          const isSelected = this.analyticsOrderFilter === ord.id;
+          const isActive = ord.status === 'active';
+          const dateStr = ord.createdAt
+            ? new Date(ord.createdAt).toLocaleDateString([], { day: '2-digit', month: 'short' })
+            : '';
+
+          return `
+            <div class="ios-glass-card p-4 space-y-3 ${isSelected ? 'border-emerald-400/50' : ''}">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="text-sm font-semibold text-white">${this._escapeHtml(ord.name)}</div>
+                  <div class="text-xs text-slate-400">${ord.initialUnits} uds · ${isActive ? 'En curso' : 'Terminado'}${dateStr ? ` · ${dateStr}` : ''}</div>
+                </div>
+                <span class="text-xs font-semibold ${ord.roiPct >= 0 ? 'text-emerald-400' : 'text-rose-400'} tabular-nums">ROI ${ord.roiPct} %</span>
+              </div>
+
+              <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full bg-emerald-400 rounded-full" style="width: ${Math.min(100, ord.sellThroughPct)}%"></div>
+              </div>
+
+              <div class="flex justify-between text-xs text-slate-300 tabular-nums">
+                <span>Facturado: ${ord.billed.toFixed(0)} €</span>
+                <span class="text-emerald-400 font-medium">Beneficio: +${ord.profit.toFixed(0)} €</span>
+              </div>
+
+              <details class="ios-accordion mb-0">
+                <summary>
+                  <span>Desglose y acciones (${ord.unitsSold}/${ord.initialUnits} vendidas · ${ord.sellThroughPct}%)</span>
+                </summary>
+                <div class="ios-accordion-body space-y-2.5">
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center tabular-nums">
+                    <div class="bg-white/5 p-2 rounded-xl border border-white/10">
+                      <div class="text-[9.5px] text-slate-400 uppercase">Inversión</div>
+                      <div class="text-xs font-bold text-slate-200 mt-0.5">${ord.initialCost.toFixed(2)}€</div>
+                    </div>
+                    <div class="bg-white/5 p-2 rounded-xl border border-white/10">
+                      <div class="text-[9.5px] text-slate-400 uppercase">Facturado</div>
+                      <div class="text-xs font-bold text-white mt-0.5">${ord.billed.toFixed(2)}€</div>
+                    </div>
+                    <div class="bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/25">
+                      <div class="text-[9.5px] text-emerald-300 uppercase">Beneficio</div>
+                      <div class="text-xs font-bold text-emerald-400 mt-0.5">+${ord.profit.toFixed(2)}€</div>
+                    </div>
+                    <div class="bg-white/5 p-2 rounded-xl border border-white/10">
+                      <div class="text-[9.5px] text-slate-400 uppercase">Margen</div>
+                      <div class="text-xs font-bold text-white mt-0.5">${ord.profitMargin}%</div>
+                    </div>
+                  </div>
+
+                  <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-1 tabular-nums">
+                    <span>💵 ${ord.cashBilled.toFixed(0)}€ · 💳 ${ord.cardBilled.toFixed(0)}€${ord.pendingDebtBilled > 0 ? ` · ⏳ ${ord.pendingDebtBilled.toFixed(0)}€` : ''}</span>
+                    <span>${ord.transactionCount} ventas (ticket ${ord.avgTicket.toFixed(2)}€)</span>
+                  </div>
+
+                  ${ord.topFlavors && ord.topFlavors.length > 0 ? `
+                    <div class="text-[11px] text-slate-300 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 truncate">
+                      ⭐ Top: ${ord.topFlavors.map(f => `${this._escapeHtml(f.name)} (${f.unitsSold})`).join(' · ')}
+                    </div>
+                  ` : ''}
+
+                  <div class="flex items-center gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onclick="window.app.setAnalyticsOrderFilter('${this._escJsAttr(isSelected ? 'all' : ord.id)}')"
+                      class="btn-pressable flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold ${
+                        isSelected
+                          ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-500/40'
+                          : 'bg-white/10 hover:bg-white/15 text-slate-200'
+                      }"
+                    >
+                      ${isSelected ? '✓ Viendo este pedido (Ver todos)' : 'Filtrar métricas por este pedido'}
+                    </button>
+                    ${isActive ? `
+                      <button
+                        type="button"
+                        onclick="window.app.closeOrderAction('${this._escJsAttr(ord.id)}')"
+                        class="btn-pressable py-2 px-3 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/35"
+                      >Terminar</button>
+                    ` : ''}
+                  </div>
+                </div>
+              </details>
+            </div>
+          `;
+        }).join('')}
+
+        <div class="flex justify-end px-1">
           <button
             type="button"
             onclick="window.app.openNewOrderModal()"
-            class="btn-pressable bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-bold shadow-md shadow-emerald-900/30"
-          >+ Nuevo Pedido / Recuento</button>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          ${orders.map(ord => {
-            const isSelected = this.analyticsOrderFilter === ord.id;
-            const isActive = ord.status === 'active';
-            const dateStr = ord.createdAt
-              ? new Date(ord.createdAt).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })
-              : '';
-
-            return `
-              <div class="bg-slate-900/90 p-3.5 rounded-2xl border ${
-                isSelected ? 'border-emerald-400' : isActive ? 'border-emerald-500/40' : 'border-slate-700/70'
-              }">
-                <div class="flex items-start justify-between gap-2 mb-2.5">
-                  <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <h4 class="text-sm font-black text-white truncate">${this._escapeHtml(ord.name)}</h4>
-                      <span class="badge ${isActive ? 'badge-ok-stock' : 'badge-warehouse'} text-[9.5px]">
-                        ${isActive ? '🟢 Activo' : '🏁 Terminado'}
-                      </span>
-                    </div>
-                    <div class="text-[10px] text-slate-400 mt-0.5">
-                      ${dateStr}${(ord.supplier || ord.notes) ? ` • ${this._escapeHtml(ord.supplier || ord.notes)}` : ''} • ${ord.flavorsCount} sabores (${ord.initialUnits} uds)
-                    </div>
-                  </div>
-                  <span class="badge ${ord.roiPct >= 0 ? 'badge-ok-stock' : 'badge-low-stock'} text-[10px] flex-shrink-0">
-                    ROI: ${ord.roiPct}%
-                  </span>
-                </div>
-
-                <!-- 4 cifras clave del pedido -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center mb-2.5 tabular-nums">
-                  <div class="bg-slate-950/65 p-2 rounded-xl border border-slate-800">
-                    <div class="text-[9.5px] text-slate-400 uppercase">Inversión</div>
-                    <div class="text-xs font-black text-slate-200 mt-0.5">${ord.initialCost.toFixed(2)}€</div>
-                  </div>
-                  <div class="bg-slate-950/65 p-2 rounded-xl border border-slate-800">
-                    <div class="text-[9.5px] text-indigo-300 uppercase">Facturado</div>
-                    <div class="text-xs font-black text-white mt-0.5">${ord.billed.toFixed(2)}€</div>
-                  </div>
-                  <div class="bg-emerald-950/40 p-2 rounded-xl border border-emerald-500/30">
-                    <div class="text-[9.5px] text-emerald-300 uppercase">Beneficio</div>
-                    <div class="text-xs font-black text-emerald-400 mt-0.5">+${ord.profit.toFixed(2)}€</div>
-                  </div>
-                  <div class="bg-slate-950/65 p-2 rounded-xl border border-slate-800">
-                    <div class="text-[9.5px] text-slate-400 uppercase">Margen</div>
-                    <div class="text-xs font-black text-white mt-0.5">${ord.profitMargin}%</div>
-                  </div>
-                </div>
-
-                <!-- Barra de progreso de unidades vendidas del pedido -->
-                <div class="mb-2.5">
-                  <div class="flex items-center justify-between text-[10px] text-slate-300 mb-1">
-                    <span>Progreso del pedido: <strong>${ord.unitsSold} / ${ord.initialUnits} uds</strong> vendidas</span>
-                    <span class="text-emerald-400 font-bold">${ord.sellThroughPct}% (${ord.remainingUnits} rest.)</span>
-                  </div>
-                  <div class="progress-track">
-                    <div class="progress-fill-emerald" style="width: ${Math.min(100, ord.sellThroughPct)}%"></div>
-                  </div>
-                </div>
-
-                <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-400 mb-2.5 gap-1">
-                  <span>💵 ${ord.cashBilled.toFixed(0)}€ • 💳 ${ord.cardBilled.toFixed(0)}€${ord.pendingDebtBilled > 0 ? ` • ⏳ ${ord.pendingDebtBilled.toFixed(0)}€` : ''}</span>
-                  <span>${ord.transactionCount} ventas (ticket ${ord.avgTicket.toFixed(2)}€)</span>
-                </div>
-
-                ${ord.topFlavors && ord.topFlavors.length > 0 ? `
-                  <div class="text-[10px] text-slate-300 bg-slate-950/50 px-2.5 py-1.5 rounded-xl border border-slate-800/80 mb-2.5 truncate">
-                    ⭐ Top: ${ord.topFlavors.map(f => `${this._escapeHtml(f.name)} (${f.unitsSold})`).join(' · ')}
-                  </div>
-                ` : ''}
-
-                <div class="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onclick="window.app.setAnalyticsOrderFilter('${this._escJsAttr(isSelected ? 'all' : ord.id)}')"
-                    class="btn-pressable flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold border ${
-                      isSelected
-                        ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/50'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    }"
-                  >
-                    ${isSelected ? '✓ Viendo este pedido (Ver Todos)' : '🔍 Filtrar Métricas por este Pedido'}
-                  </button>
-                  ${isActive ? `
-                    <button
-                      type="button"
-                      onclick="window.app.closeOrderAction('${this._escJsAttr(ord.id)}')"
-                      class="btn-pressable py-1.5 px-2.5 rounded-xl text-[11px] font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
-                      title="Marcar este pedido como terminado"
-                    >🏁 Terminar</button>
-                  ` : ''}
-                </div>
-              </div>
-            `;
-          }).join('')}
+            class="btn-pressable px-3.5 py-2 rounded-full bg-white text-slate-950 text-xs font-semibold"
+          >+ Nuevo pedido / recuento</button>
         </div>
       </div>
     `;

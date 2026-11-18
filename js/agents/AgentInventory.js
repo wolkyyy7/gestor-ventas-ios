@@ -10,7 +10,7 @@
  * - Valoración financiera y generador de mensajes preescritos de stock listos para copiar y pegar
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.0';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.1';
 
 export class AgentInventory {
   /**

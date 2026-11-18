@@ -12,7 +12,7 @@
  * - Proporciona reversión atómica de transacciones erróneas devolviendo el stock a su almacén
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.0';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.1';
 
 export class AgentSales {
   /**
