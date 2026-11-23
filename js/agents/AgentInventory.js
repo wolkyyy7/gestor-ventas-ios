@@ -10,7 +10,7 @@
  * - Valoración financiera y generador de mensajes preescritos de stock listos para copiar y pegar
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.3';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.4';
 
 export class AgentInventory {
   /**
@@ -1028,7 +1028,7 @@ export class AgentInventory {
       lines.push('');
     } else {
       if (style === 'whatsapp') {
-        lines.push('🔥 *SABORES DISPONIBLES* 🔥');
+        lines.push('*SABORES DISPONIBLES*');
         lines.push('');
       } else if (style === 'clean') {
         lines.push('SABORES DISPONIBLES:');
@@ -1043,47 +1043,70 @@ export class AgentInventory {
     } else {
       visibleItems.forEach((item, idx) => {
         const isOut = item.qty <= 0;
-        const priceTag = showPrices ? ` (${Number(item.sellPrice || 0).toFixed(2)}€)` : '';
 
         if (style === 'whatsapp') {
           if (isOut) {
             lines.push(`❌ ~${item.name}~ — *AGOTADO*`);
           } else if (showQuantities) {
-            lines.push(`✅ ${item.name}: *${item.qty} ${item.qty === 1 ? 'ud' : 'uds'}*${priceTag}`);
+            lines.push(`✅ ${item.name}: *${item.qty} ${item.qty === 1 ? 'ud' : 'uds'}*`);
           } else {
-            lines.push(`✅ ${item.name}${priceTag}`);
+            lines.push(`✅ ${item.name}`);
           }
         } else if (style === 'clean') {
           if (isOut) {
             lines.push(`- ${item.name}: AGOTADO`);
           } else if (showQuantities) {
-            lines.push(`• ${item.name}: ${item.qty} ${item.qty === 1 ? 'ud' : 'uds'}${priceTag}`);
+            lines.push(`• ${item.name}: ${item.qty} ${item.qty === 1 ? 'ud' : 'uds'}`);
           } else {
-            lines.push(`• ${item.name}${priceTag}`);
+            lines.push(`• ${item.name}`);
           }
         } else {
           // compact
           if (isOut) {
             lines.push(`${idx + 1}. ${item.name} (Agotado)`);
           } else if (showQuantities) {
-            lines.push(`${idx + 1}. ${item.name} (${item.qty})${priceTag}`);
+            lines.push(`${idx + 1}. ${item.name} (${item.qty})`);
           } else {
-            lines.push(`${idx + 1}. ${item.name}${priceTag}`);
+            lines.push(`${idx + 1}. ${item.name}`);
           }
         }
       });
     }
 
-    // Pie de mensaje
+    // Pie de mensaje (precio general abajo si está activado)
     if (customFooter && customFooter.trim()) {
       lines.push('');
       lines.push(customFooter.trim());
-    } else if (style === 'whatsapp' && visibleItems.length > 0) {
-      lines.push('');
-      if (showQuantities) {
-        lines.push(`📦 *Total disponible:* ${totalUnits} uds (${availableProductsCount} sabores)`);
+    } else if (visibleItems.length > 0) {
+      const footerLines = [];
+      if (style === 'whatsapp' && showQuantities) {
+        footerLines.push(`📦 *Total disponible:* ${totalUnits} uds (${availableProductsCount} sabores)`);
       }
-      lines.push('📩 *¡Escríbeme para reservar el tuyo!*');
+      if (showPrices) {
+        const prices = visibleItems
+          .map(i => Number(i.sellPrice || 0))
+          .filter(p => Number.isFinite(p) && p > 0);
+        const uniquePrices = Array.from(new Set(prices.map(p => p.toFixed(2))));
+        const formatPrice = (numStr) => {
+          const n = parseFloat(numStr);
+          return Number.isInteger(n) ? String(n) : numStr;
+        };
+        let priceSummary = '';
+        if (uniquePrices.length === 1) {
+          priceSummary = `${formatPrice(uniquePrices[0])}€ / ud`;
+        } else if (uniquePrices.length > 1) {
+          const minP = Math.min(...prices);
+          const maxP = Math.max(...prices);
+          priceSummary = `${formatPrice(minP.toFixed(2))}€ - ${formatPrice(maxP.toFixed(2))}€ / ud`;
+        }
+        if (priceSummary) {
+          footerLines.push(style === 'whatsapp' ? `💶 *Precio:* ${priceSummary}` : `Precio: ${priceSummary}`);
+        }
+      }
+      if (footerLines.length > 0) {
+        lines.push('');
+        lines.push(...footerLines);
+      }
     }
 
     return {
