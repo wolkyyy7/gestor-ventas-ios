@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.2';
-import { AgentInventory } from './agents/AgentInventory.js?v=5.2';
-import { AgentSales } from './agents/AgentSales.js?v=5.2';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.2';
-import { AgentAuth } from './agents/AgentAuth.js?v=5.2';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=5.2';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.2';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=5.2';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.3';
+import { AgentInventory } from './agents/AgentInventory.js?v=5.3';
+import { AgentSales } from './agents/AgentSales.js?v=5.3';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.3';
+import { AgentAuth } from './agents/AgentAuth.js?v=5.3';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=5.3';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.3';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=5.3';
 
-const APP_VERSION = 'v5.2';
+const APP_VERSION = 'v5.3';
 
 class AppController {
   constructor() {
@@ -131,7 +131,12 @@ class AppController {
     await this.renderCurrentTab();
     await this.updateHeaderQuickStats();
 
-    if (this.authAgent.urlAuthError) {
+    if (this.authAgent.isLocked()) {
+      if (this.authAgent.urlAuthError) {
+        this.showToast(this.authAgent.urlAuthError, '⚠️');
+      }
+      setTimeout(() => this.openPinAuthModal(true), 120);
+    } else if (this.authAgent.urlAuthError) {
       this.showToast(this.authAgent.urlAuthError, '⚠️');
       setTimeout(() => this.openPinAuthModal(), 250);
     }
@@ -193,6 +198,7 @@ class AppController {
   }
 
   applyRoleUI() {
+    const isLocked = this.authAgent.isLocked();
     const isWorker = this.authAgent.isWorker();
     const session = this.authAgent.getSession();
 
@@ -203,7 +209,10 @@ class AppController {
     const analyticsTabLabel = document.querySelector('.tab-btn[data-tab="analytics"] span');
 
     if (roleBadge) {
-      if (isWorker) {
+      if (isLocked) {
+        roleBadge.textContent = '🔒 PIN';
+        roleBadge.className = 'btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-amber-500/20 border border-amber-400/35 text-amber-200 transition whitespace-nowrap';
+      } else if (isWorker) {
         roleBadge.textContent = session.workerName || session.warehouseName || 'Trabajador';
         roleBadge.className = 'btn-pressable px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 hover:bg-indigo-500/30 transition whitespace-nowrap';
       } else {
@@ -417,6 +426,7 @@ class AppController {
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
+          if (overlay.id === 'pinAuthModal' && this.authAgent.isLocked()) return;
           overlay.classList.remove('active');
         }
       });
@@ -425,7 +435,10 @@ class AppController {
     document.querySelectorAll('.btn-close-modal').forEach(btn => {
       btn.addEventListener('click', () => {
         const modal = btn.closest('.modal-overlay');
-        if (modal) modal.classList.remove('active');
+        if (modal) {
+          if (modal.id === 'pinAuthModal' && this.authAgent.isLocked()) return;
+          modal.classList.remove('active');
+        }
       });
     });
 
@@ -470,6 +483,26 @@ class AppController {
   }
 
   async renderCurrentTab() {
+    if (this.authAgent.isLocked()) {
+      ['view-sales', 'view-inventory', 'view-analytics', 'view-settings'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = `
+          <div class="ios-glass-card p-6 text-center space-y-3 mt-4">
+            <div class="text-3xl">🔐</div>
+            <h3 class="text-base font-bold text-white">Acceso bloqueado con PIN</h3>
+            <p class="text-xs text-slate-400">Introduce tu PIN personal (Trabajador o Jefe) para continuar.</p>
+            <button
+              type="button"
+              onclick="window.app.openPinAuthModal(true)"
+              class="btn-pressable px-5 py-2.5 rounded-full bg-white text-slate-950 text-xs font-semibold"
+            >Introducir PIN</button>
+          </div>
+        `;
+      });
+      return;
+    }
+
     switch (this.activeTab) {
       case 'sales':
         await this.renderSalesView();
@@ -491,6 +524,14 @@ class AppController {
     const todayProfEl = document.getElementById('headerTodayProfit');
     const allTimeRevEl = document.getElementById('headerAllTimeRevenue');
     const allTimeProfEl = document.getElementById('headerAllTimeProfit');
+
+    if (this.authAgent.isLocked()) {
+      if (todayRevEl) todayRevEl.textContent = '0.00€';
+      if (todayProfEl) todayProfEl.textContent = '';
+      if (allTimeRevEl) allTimeRevEl.textContent = '';
+      if (allTimeProfEl) allTimeProfEl.textContent = '';
+      return;
+    }
 
     if (this.authAgent.isWorker()) {
       const assignedWh = this.authAgent.getAssignedWarehouseId();
@@ -5951,31 +5992,41 @@ class AppController {
   // =========================================================================
   // CONTROLADORES DE ROLES / PIN, INVITACIONES DE TRABAJADOR, NTFY Y CLOUD SYNC
   // =========================================================================
-  async openPinAuthModal() {
+  async openPinAuthModal(forceLocked = false) {
     const modal = document.getElementById('pinAuthModal');
     const body = document.getElementById('pinAuthModalBody');
     if (!modal || !body) return;
 
+    const isLocked = forceLocked || this.authAgent.isLocked();
     const session = this.authAgent.getSession();
-    const isWorker = this.authAgent.isWorker();
-    const warehouses = await this.inventoryAgent.getWarehouses();
+    const isBoss = this.authAgent.isBoss();
+    const isWorker = !isBoss;
+    const warehouses = isBoss ? await this.inventoryAgent.getWarehouses() : [];
     const workerWhs = warehouses.filter(w => !w.isMain);
 
     body.innerHTML = `
       <div class="flex items-center justify-between mb-3">
         <div>
-          <h3 class="text-lg font-black text-white">🔐 Acceso y Cambio de Perfil</h3>
+          <h3 class="text-lg font-black text-white">${isLocked ? '🔐 Acceso Protegido con PIN' : '🔐 Acceso y Cambio de Perfil'}</h3>
           <span class="text-xs text-slate-400">
-            Sesión actual: ${isWorker ? `👤 ${this._escapeHtml(session.workerName)} (${this._escapeHtml(session.warehouseName)})` : '👑 Jefe (Acceso Total)'}
+            ${isLocked
+              ? 'Introduce tu PIN personal para acceder a tu perfil'
+              : `Sesión actual: ${isWorker ? `👤 ${this._escapeHtml(session.workerName)} (${this._escapeHtml(session.warehouseName)})` : '👑 Jefe (Acceso Total)'}`
+            }
           </span>
         </div>
-        <button onclick="document.getElementById('pinAuthModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
+        ${isLocked ? '' : `<button onclick="document.getElementById('pinAuthModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>`}
       </div>
 
       <form onsubmit="event.preventDefault(); window.app.submitPinAuthModal();" class="space-y-3 mb-4">
         <div class="bg-slate-900/80 p-3.5 rounded-2xl border border-white/10">
           <label class="text-xs text-slate-300 font-bold block mb-2 text-center">
-            ${isWorker ? 'Introduce el PIN del Jefe para desbloquear todo (o el PIN de otro trabajador)' : 'Introduce un PIN de Trabajador o PIN de Jefe'}
+            ${isLocked
+              ? 'Introduce tu PIN de Trabajador o PIN de Jefe'
+              : isWorker
+                ? 'Introduce el PIN del Jefe (o el PIN de otro perfil) para cambiar'
+                : 'Introduce un PIN de Trabajador o PIN de Jefe'
+            }
           </label>
           <input
             type="password"
@@ -5991,27 +6042,45 @@ class AppController {
         </button>
       </form>
 
-      ${!isWorker && workerWhs.length > 0 ? `
-        <div class="pt-3 border-t border-slate-800">
-          <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Entrar rápido en vista de un trabajador:</div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            ${workerWhs.map(w => `
-              <button
-                type="button"
-                onclick="window.app.enterWorkerView('${w.id}')"
-                class="btn-pressable bg-slate-900/90 hover:bg-slate-800 p-2.5 rounded-xl border border-slate-700 flex items-center justify-between text-xs"
-              >
-                <span class="font-bold text-white">${w.icon || '👤'} ${this._escapeHtml(w.name)}</span>
-                <span class="text-[10px] text-indigo-300 font-mono">PIN: ${this._escapeHtml(w.workerPin)}</span>
-              </button>
-            `).join('')}
-          </div>
+      ${isBoss ? `
+        <div class="pt-3 border-t border-slate-800 space-y-2.5">
+          ${workerWhs.length > 0 ? `
+            <div>
+              <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Entrar rápido en vista de un trabajador:</div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                ${workerWhs.map(w => `
+                  <button
+                    type="button"
+                    onclick="window.app.enterWorkerView('${w.id}')"
+                    class="btn-pressable bg-slate-900/90 hover:bg-slate-800 p-2.5 rounded-xl border border-slate-700 flex items-center justify-between text-xs"
+                  >
+                    <span class="font-bold text-white">${w.icon || '👤'} ${this._escapeHtml(w.name)}</span>
+                    <span class="text-[10px] text-indigo-300 font-mono">PIN: ${this._escapeHtml(w.workerPin)}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          <button
+            type="button"
+            onclick="window.app.lockToPinScreen()"
+            class="btn-pressable w-full py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-semibold"
+          >🔒 Bloquear pantalla (pedir PIN al abrir)</button>
         </div>
       ` : ''}
     `;
 
     modal.classList.add('active');
-    this._playChime('tap');
+    if (!isLocked) this._playChime('tap');
+  }
+
+  lockToPinScreen() {
+    const res = this.authAgent.logoutToPinLock();
+    this.applyRoleUI();
+    this.renderCurrentTab();
+    this.updateHeaderQuickStats();
+    this.openPinAuthModal(true);
+    return res;
   }
 
   async submitPinAuthModal() {

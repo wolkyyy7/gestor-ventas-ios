@@ -9,8 +9,8 @@
  * - Mantener la app funcional offline usando IndexedDB como caché local inmediata
  */
 
-import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=5.2';
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.2';
+import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=5.3';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.3';
 
 const SUPABASE_CONFIG_KEY = 'gv_supabase_config';
 
@@ -539,7 +539,7 @@ export class AgentSupabase {
 
     if (cfgRows && cfgRows.length > 0 && this.storage) {
       for (const cfg of cfgRows) {
-        if (cfg.key) {
+        if (cfg.key && cfg.key !== 'local_device_session' && cfg.key !== 'clean_order_v5_2_applied') {
           await this.storage.setConfig(cfg.key, cfg.value, { skipCloudSync: true });
         }
       }
@@ -960,7 +960,7 @@ export class AgentSupabase {
           await this.storage.saveSettlement(this._fromDbSettlement(payload.new), { skipCloudSync: true });
         }
       } else if (table === 'app_config') {
-        if (!isDelete && payload.new?.key) {
+        if (!isDelete && payload.new?.key && payload.new.key !== 'local_device_session' && payload.new.key !== 'clean_order_v5_2_applied') {
           await this.storage.setConfig(payload.new.key, payload.new.value, { skipCloudSync: true });
         }
       } else if (table === 'orders') {

@@ -9,8 +9,10 @@
  */
 
 const ACTIVE_SESSION_STORAGE_KEY = 'gv_active_session';
+const LOCAL_DEVICE_SESSION_KEY = 'local_device_session';
 const AUTH_CONFIG_KEY = 'auth_config';
 const DEFAULT_BOSS_PIN = '1234';
+const AUTH_SESSION_VERSION = 2;
 
 export class AgentAuth {
   /**
@@ -21,7 +23,7 @@ export class AgentAuth {
     this.storage = storageAgent;
     this.inventory = inventoryAgent;
     this.bossPin = DEFAULT_BOSS_PIN;
-    this.session = this._getDefaultBossSession();
+    this.session = this._getLockedSession();
   }
 
   _getDefaultBossSession() {
@@ -30,7 +32,22 @@ export class AgentAuth {
       warehouseId: 'all',
       warehouseName: 'Todos los Almacenes',
       workerName: 'Jefe',
-      isWorkerMode: false
+      isWorkerMode: false,
+      pinVerified: true,
+      authVersion: AUTH_SESSION_VERSION
+    };
+  }
+
+  _getLockedSession() {
+    return {
+      role: 'locked',
+      warehouseId: null,
+      warehouseName: 'Bloqueado',
+      workerName: 'Sin sesión',
+      isWorkerMode: true,
+      locked: true,
+      pinVerified: false,
+      authVersion: AUTH_SESSION_VERSION
     };
   }
 
@@ -40,7 +57,9 @@ export class AgentAuth {
       warehouseId: warehouse.id,
       warehouseName: warehouse.name,
       workerName: warehouse.workerName || warehouse.name,
-      isWorkerMode: true
+      isWorkerMode: true,
+      pinVerified: true,
+      authVersion: AUTH_SESSION_VERSION
     };
   }
 
@@ -49,13 +68,17 @@ export class AgentAuth {
     try {
       localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(session));
     } catch (err) {
-      console.warn('AgentAuth: No se pudo persistir la sesión:', err);
+      console.warn('AgentAuth: No se pudo persistir la sesión en localStorage:', err);
+    }
+    if (this.storage && typeof this.storage.setConfig === 'function') {
+      this.storage.setConfig(LOCAL_DEVICE_SESSION_KEY, session, { skipCloudSync: true }).catch(() => {});
     }
     return this.session;
   }
 
   /**
    * Inicializa la configuración de PIN y la sesión activa (incluyendo auto-login desde enlace de trabajador).
+   * Nunca escala a Jefe por defecto si no hay una sesión verificada con PIN.
    */
   async init() {
     try {
@@ -64,7 +87,6 @@ export class AgentAuth {
         this.bossPin = String(cfg.bossPin).trim();
       } else {
         this.bossPin = DEFAULT_BOSS_PIN;
-        await this.storage.setConfig(AUTH_CONFIG_KEY, { bossPin: this.bossPin });
       }
     } catch (err) {
       console.warn('AgentAuth: Error cargando auth_config:', err);
@@ -78,18 +100,18 @@ export class AgentAuth {
         const urlPin = params.get('pin');
         const urlWh = params.get('wh');
 
-        if (urlPin && urlPin.trim()) {
+        if ((urlPin && urlPin.trim()) || (urlWh && urlWh.trim())) {
+          const cleanUrlPin = String(urlPin || '').trim();
           const warehouses = await this.inventory.getWarehouses();
           let matchedWh = null;
 
-          if (urlWh) {
+          if (urlWh && cleanUrlPin) {
             const targetWh = warehouses.find(w => w.id === urlWh);
             if (targetWh) {
-              // Si el almacén ya existe localmente, exigimos que NO sea el principal y que el PIN coincida
-              if (!targetWh.isMain && String(targetWh.workerPin || '').trim() === urlPin.trim()) {
+              if (!targetWh.isMain && String(targetWh.workerPin || '').trim() === cleanUrlPin) {
                 matchedWh = targetWh;
               }
-            } else if (urlWh !== 'wh_main' && urlPin.trim().length >= 4) {
+            } else if (urlWh !== 'wh_main' && cleanUrlPin.length >= 4) {
               // Fallback solo si el enlace apunta a un almacén secundario aún no sincronizado
               const urlWhName = params.get('name') || 'Mi Almacén';
               this._saveSession({
@@ -97,13 +119,15 @@ export class AgentAuth {
                 warehouseId: urlWh,
                 warehouseName: urlWhName,
                 workerName: urlWhName,
-                isWorkerMode: true
+                isWorkerMode: true,
+                pinVerified: true,
+                authVersion: AUTH_SESSION_VERSION
               });
               return this.session;
             }
-          } else {
+          } else if (cleanUrlPin) {
             matchedWh = warehouses.find(
-              w => !w.isMain && String(w.workerPin || '').trim() === urlPin.trim()
+              w => !w.isMain && String(w.workerPin || '').trim() === cleanUrlPin
             );
           }
 
@@ -112,16 +136,9 @@ export class AgentAuth {
             return this.session;
           }
 
-          // Enlace ?wh=... o ?pin=... inválido/revocado: NO escalar silenciosamente a Jefe
-          this.urlAuthError = 'El enlace de trabajador no es válido o ha caducado. Introduce el PIN.';
-          this._saveSession({
-            role: 'worker',
-            warehouseId: urlWh && urlWh !== 'wh_main' ? urlWh : null,
-            warehouseName: 'Acceso Restringido',
-            workerName: 'Sin autorizar',
-            isWorkerMode: true,
-            invalidInvite: true
-          });
+          // Enlace ?wh=... o ?pin=... inválido/revocado: bloquear acceso hasta introducir PIN válido
+          this.urlAuthError = 'El enlace de trabajador no es válido o ha caducado. Introduce tu PIN.';
+          this._saveSession(this._getLockedSession());
           return this.session;
         }
       }
@@ -129,43 +146,83 @@ export class AgentAuth {
       console.warn('AgentAuth: Error leyendo parámetros URL:', err);
     }
 
-    // 2. Recuperar sesión previa guardada en localStorage
+    // 2. Recuperar sesión previa guardada en localStorage o respaldo local en IndexedDB
+    let parsed = null;
     try {
       const raw = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.role === 'worker' && parsed.warehouseId && parsed.warehouseId !== 'wh_main') {
-          const warehouses = await this.inventory.getWarehouses();
-          const wh = warehouses.find(w => w.id === parsed.warehouseId);
-          if (wh && !wh.isMain) {
-            this._saveSession(this._buildWorkerSession(wh));
-            return this.session;
-          }
-          if (!wh) {
-            // Almacén pendiente de sincronizar (evitar escalar a boss si estaba en modo trabajador)
-            this._saveSession(parsed);
-            return this.session;
-          }
+      if (raw) parsed = JSON.parse(raw);
+    } catch (err) {
+      console.warn('AgentAuth: Error leyendo sesión de localStorage:', err);
+    }
+
+    if (!parsed && this.storage && typeof this.storage.getConfig === 'function') {
+      try {
+        parsed = await this.storage.getConfig(LOCAL_DEVICE_SESSION_KEY, null);
+      } catch (err) {
+        console.warn('AgentAuth: Error leyendo sesión de IndexedDB:', err);
+      }
+    }
+
+    try {
+      if (parsed && parsed.role === 'worker' && parsed.warehouseId && parsed.warehouseId !== 'wh_main') {
+        const warehouses = await this.inventory.getWarehouses();
+        const wh = warehouses.find(w => w.id === parsed.warehouseId);
+        if (wh && !wh.isMain) {
+          this._saveSession(this._buildWorkerSession(wh));
+          return this.session;
         }
+        if (!wh) {
+          // Almacén pendiente de sincronizar (mantener aislado en modo trabajador, nunca escalar a Jefe)
+          this._saveSession({
+            ...parsed,
+            role: 'worker',
+            isWorkerMode: true,
+            pinVerified: true,
+            authVersion: AUTH_SESSION_VERSION
+          });
+          return this.session;
+        }
+      }
+
+      if (
+        parsed &&
+        parsed.role === 'boss' &&
+        parsed.pinVerified === true &&
+        parsed.authVersion === AUTH_SESSION_VERSION
+      ) {
+        this._saveSession(this._getDefaultBossSession());
+        return this.session;
       }
     } catch (err) {
       console.warn('AgentAuth: Error restaurando sesión:', err);
     }
 
-    this._saveSession(this._getDefaultBossSession());
+    // 3. Sin sesión verificada: bloquear la app hasta introducir el PIN (Jefe o Trabajador)
+    this._saveSession(this._getLockedSession());
     return this.session;
   }
 
   getSession() {
-    return this.session || this._getDefaultBossSession();
+    return this.session || this._getLockedSession();
+  }
+
+  isLocked() {
+    const s = this.getSession();
+    return !s || s.role === 'locked' || s.locked === true;
   }
 
   isBoss() {
-    return this.getSession().role === 'boss';
+    const s = this.getSession();
+    return (
+      s.role === 'boss' &&
+      s.pinVerified === true &&
+      s.authVersion === AUTH_SESSION_VERSION
+    );
   }
 
   isWorker() {
-    return this.getSession().role === 'worker';
+    const s = this.getSession();
+    return s.role === 'worker' || s.role === 'locked';
   }
 
   getAssignedWarehouseId() {
@@ -224,11 +281,22 @@ export class AgentAuth {
    * (para probar la vista o entregar el dispositivo bloqueado).
    */
   async enterWorkerMode(warehouseId) {
+    if (!this.isBoss()) {
+      throw new Error('Acceso denegado: se requiere el PIN del Jefe para cambiar de perfil sin PIN.');
+    }
     const wh = await this.inventory.getWarehouse(warehouseId);
     if (!wh || wh.isMain) {
       throw new Error('Solo se puede activar el Modo Trabajador en un almacén secundario.');
     }
     const session = this._saveSession(this._buildWorkerSession(wh));
+    return { success: true, session };
+  }
+
+  /**
+   * Cierra la sesión actual y bloquea el dispositivo pidiendo PIN.
+   */
+  logoutToPinLock() {
+    const session = this._saveSession(this._getLockedSession());
     return { success: true, session };
   }
 
