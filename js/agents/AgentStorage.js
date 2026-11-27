@@ -1178,18 +1178,21 @@ export class AgentStorage {
    * Exporta toda la base de datos en un objeto JSON completo descargable (v3.0).
    */
   async exportBackup() {
-    const [products, sales, warehouses, transfers, reservations, settlements, orders] = await Promise.all([
+    const [products, sales, warehouses, transfers, reservations, settlements, orders, authConfig, ntfyConfig, workerCommissionsConfig] = await Promise.all([
       this.getAllProducts(),
       this.getAllSales(),
       this.getAllWarehouses(),
       this.getAllTransfers(),
       this.getAllReservations(),
       this.getAllSettlements(),
-      this.getAllOrders()
+      this.getAllOrders(),
+      this.getConfig('auth_config', null),
+      this.getConfig('ntfy_config', null),
+      this.getConfig('worker_commissions_config', null)
     ]);
 
     return {
-      version: '4.0',
+      version: '5.5',
       exportedAt: new Date().toISOString(),
       appName: 'GestorInventarioVentas',
       data: {
@@ -1199,7 +1202,12 @@ export class AgentStorage {
         transfers,
         reservations,
         settlements,
-        orders
+        orders,
+        configs: {
+          auth_config: authConfig,
+          ntfy_config: ntfyConfig,
+          worker_commissions_config: workerCommissionsConfig
+        }
       }
     };
   }
@@ -1295,6 +1303,14 @@ export class AgentStorage {
       localStorage.setItem('gv_reservations', JSON.stringify(rawReservations));
       localStorage.setItem('gv_settlements', JSON.stringify(rawSettlements));
       localStorage.setItem('gv_orders', JSON.stringify(rawOrders));
+    }
+
+    if (backupData.data.configs && typeof backupData.data.configs === 'object') {
+      for (const [cfgKey, cfgVal] of Object.entries(backupData.data.configs)) {
+        if (cfgVal !== null && cfgVal !== undefined) {
+          await this.setConfig(cfgKey, cfgVal, { skipCloudSync: false });
+        }
+      }
     }
 
     this._notify('warehouses:changed', { action: 'reset' });

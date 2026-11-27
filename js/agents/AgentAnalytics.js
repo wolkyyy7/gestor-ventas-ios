@@ -13,7 +13,7 @@
  * 9. Series Temporales Multi-Escala (`timeSeries`) y Ritmo de Venta (`velocityMetrics`)
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.4';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
 
 export class AgentAnalytics {
   /**
@@ -33,14 +33,16 @@ export class AgentAnalytics {
    * @param {string} [warehouseFilter='all'] ID del almacén ('all' o un warehouseId específico)
    */
   async getDashboardMetrics(timeframe = 'today', warehouseFilter = 'all', orderFilter = 'all') {
-    const [allProducts, allWarehouses, rawAllSales, allReservations, allSettlements, allOrders] = await Promise.all([
+    const [allProducts, allWarehouses, rawAllSales, allReservations, allSettlements, allOrders, workerCommissionsCfg] = await Promise.all([
       this.storage.getAllProducts(),
       this.storage.getAllWarehouses(),
       this.storage.getAllSales(),
       this.storage.getAllReservations(),
       this.storage.getAllSettlements(),
-      this.storage.getAllOrders()
+      this.storage.getAllOrders(),
+      this.storage.getConfig('worker_commissions_config', {})
     ]);
+    const commCfg = (workerCommissionsCfg && typeof workerCommissionsCfg === 'object') ? workerCommissionsCfg : {};
 
     // Calcular métricas por cada Pedido/Lote sobre todo el histórico antes de filtrar
     const ordersMetrics = this._computeOrdersMetrics(allOrders, rawAllSales);
@@ -253,7 +255,11 @@ export class AgentAnalytics {
 
     let totalPendingFreeVapersAllWorkers = 0;
     let totalPendingMoneyFromWorkers = 0;
+    let totalStockRetailWorkers = 0;
+    let totalStockUnitsWorkers = 0;
+    let totalEarnedCommissionsEuro = 0;
     const workerAccountsWarehouses = [];
+    const round2 = (v) => parseFloat((Number(v) || 0).toFixed(2));
 
     const warehouseBreakdown = allWarehouses.map(wh => {
       const whId = wh.id;
@@ -261,6 +267,7 @@ export class AgentAnalytics {
       const rewardFreeUnits = Math.max(1, parseInt(wh.rewardFreeUnits, 10) || 1);
       const deliveredFreeVapers = Math.max(0, parseInt(wh.rewardVapersDelivered, 10) || 0);
       const cashSettledAmount = Math.max(0, parseFloat(wh.cashSettledAmount) || 0);
+      const commissionPerUnit = Math.max(0, parseFloat(commCfg?.[whId]?.commissionPerUnit) || 0);
 
       // Ventas de este almacén en el periodo y pedido seleccionados
       const whPeriodSales = periodSalesAllWarehouses.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === whId);
@@ -307,43 +314,63 @@ export class AgentAnalytics {
       const whGlobalSales = rawAllSales.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === whId);
       let globalUnitsSold = 0;
       let globalPaidUnitsSold = 0;
-      let totalCollectedPaid = 0;
+      let directPaidSales = 0;
       let collectedCash = 0;
       let collectedCard = 0;
-      let totalPendingFiados = 0;
 
       whGlobalSales.forEach(s => {
         const gross = parseFloat(s.grossTotal) || 0;
         const qty = parseInt(s.quantity, 10) || 0;
         globalUnitsSold += qty;
 
-        if (s.paymentStatus === 'pending') {
-          totalPendingFiados += gross;
-        } else {
-          // Las ventas fiadas solo cuentan para comisión de vapers gratis al cobrarlas
+        if (s.paymentStatus === 'settled') {
+          // Fiado cubierto por abonos: suma unidades a comisión, pero el dinero se cuenta vía `customer_payment`
           globalPaidUnitsSold += qty;
-          totalCollectedPaid += gross;
+        } else if (s.paymentStatus !== 'pending') {
+          // Venta cobrada al contado ('paid')
+          globalPaidUnitsSold += qty;
+          directPaidSales += gross;
           if (s.paymentMethod === 'Efectivo') collectedCash += gross;
           else collectedCard += gross;
         }
       });
 
-      // Cálculos de Comisión de Vapers Gratis (solo unidades ya cobradas en histórico global)
+      // Sumar abonos parciales/totales cobrados en este almacén sin doble conteo
+      let customerPaymentsCollected = 0;
+      const whCustomerPayments = allSettlements.filter(
+        st => st.type === 'customer_payment' && (st.warehouseId || MAIN_WAREHOUSE_ID) === whId
+      );
+      whCustomerPayments.forEach(st => {
+        const amt = parseFloat(st.amount) || 0;
+        customerPaymentsCollected += amt;
+        if (st.productName === 'Tarjeta') collectedCard += amt;
+        else collectedCash += amt;
+      });
+
+      const totalCollectedPaid = round2(directPaidSales + customerPaymentsCollected);
+      const whCustomerAccountsSummary = this.computeCustomerAccounts(rawAllSales, allSettlements, whId);
+      const totalPendingFiados = whCustomerAccountsSummary.totalPendingDebtAmount;
+
+      // Indicador 3: Comisiones (Vapers gratis + Comisiones en €)
       const earnedFreeVapers = Math.floor(globalPaidUnitsSold / rewardEveryNUnits) * rewardFreeUnits;
       const pendingFreeVapers = Math.max(0, earnedFreeVapers - deliveredFreeVapers);
       const unitsTowardNextFreeVaper = globalPaidUnitsSold % rewardEveryNUnits;
       const unitsNeededForNextFreeVaper = rewardEveryNUnits - unitsTowardNextFreeVaper;
       const nextFreeVaperProgressPct = parseFloat(((unitsTowardNextFreeVaper / rewardEveryNUnits) * 100).toFixed(1));
 
-      // Cuentas globales de liquidación de dinero con el trabajador
-      const pendingMoneyToDeliver = Math.max(0, parseFloat((totalCollectedPaid - cashSettledAmount).toFixed(2)));
+      const earnedCommissionEuro = round2(globalPaidUnitsSold * commissionPerUnit);
+      const commissionPaidDirectly = round2(
+        allSettlements
+          .filter(st => st.type === 'commission_payout' && st.warehouseId === whId)
+          .reduce((sum, st) => sum + (parseFloat(st.amount) || 0), 0)
+      );
+      const netCommissionOffset = round2(Math.max(0, earnedCommissionEuro - commissionPaidDirectly));
 
-      if (!wh.isMain) {
-        totalPendingFreeVapersAllWorkers += pendingFreeVapers;
-        totalPendingMoneyFromWorkers += pendingMoneyToDeliver;
-      }
+      // Indicador 1: Deuda líquida (Dinero en su mano descontando comisión neta disponible y entregas ya hechas)
+      const netObligationToBoss = round2(Math.max(0, totalCollectedPaid - netCommissionOffset));
+      const pendingMoneyToDeliver = round2(Math.max(0, netObligationToBoss - cashSettledAmount));
 
-      // Stock actual en este almacén
+      // Stock actual en este almacén (Indicador 2: Inventario asignado en consignación)
       let currentStockUnits = 0;
       let stockCostValuation = 0;
       let stockRetailValuation = 0;
@@ -362,9 +389,23 @@ export class AgentAnalytics {
       });
 
       const stockPotentialProfit = stockRetailValuation - stockCostValuation;
+      const stockPotentialCommissionEuro = round2(currentStockUnits * commissionPerUnit);
+      const stockNetPotentialToBoss = round2(Math.max(0, stockRetailValuation - stockPotentialCommissionEuro));
       const stockSharePercentage = currentTotalStockUnits > 0
         ? parseFloat(((currentStockUnits / currentTotalStockUnits) * 100).toFixed(1))
         : 0;
+
+      if (!wh.isMain) {
+        totalPendingFreeVapersAllWorkers += pendingFreeVapers;
+        totalPendingMoneyFromWorkers += pendingMoneyToDeliver;
+        totalStockRetailWorkers += stockRetailValuation;
+        totalStockUnitsWorkers += currentStockUnits;
+        totalEarnedCommissionsEuro += earnedCommissionEuro;
+      }
+
+      const workerSettlements = allSettlements
+        .filter(st => st.warehouseId === whId && st.type !== 'customer_payment')
+        .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 
       const totalManagedUnits = whAllTimeUnitsSold + currentStockUnits;
       const sellThroughRate = totalManagedUnits > 0
@@ -396,7 +437,7 @@ export class AgentAnalytics {
         allTimeUnitsSold: whAllTimeUnitsSold,
         allTimeTransactions: whAllTimeTransactions,
         allTimeRevenueShare,
-        // Comisiones y liquidaciones globales
+        // Comisiones y liquidaciones globales (3 indicadores consignación)
         rewardEveryNUnits,
         rewardFreeUnits,
         earnedFreeVapers,
@@ -405,18 +446,29 @@ export class AgentAnalytics {
         unitsTowardNextFreeVaper,
         unitsNeededForNextFreeVaper,
         nextFreeVaperProgressPct,
-        totalCollectedPaid: parseFloat(totalCollectedPaid.toFixed(2)),
-        collectedCash: parseFloat(collectedCash.toFixed(2)),
-        collectedCard: parseFloat(collectedCard.toFixed(2)),
-        totalPendingFiados: parseFloat(totalPendingFiados.toFixed(2)),
-        cashSettledAmount: parseFloat(cashSettledAmount.toFixed(2)),
+        commissionPerUnit,
+        globalPaidUnitsSold,
+        earnedCommissionEuro,
+        commissionPaidDirectly,
+        netCommissionOffset,
+        directPaidSales: round2(directPaidSales),
+        customerPaymentsCollected: round2(customerPaymentsCollected),
+        totalCollectedPaid,
+        netObligationToBoss,
+        collectedCash: round2(collectedCash),
+        collectedCard: round2(collectedCard),
+        totalPendingFiados: round2(totalPendingFiados),
+        cashSettledAmount: round2(cashSettledAmount),
         pendingMoneyToDeliver,
-        // Stock en almacén
+        workerSettlements,
+        // Stock en almacén (Consignación)
         currentStockUnits,
         productsWithStock,
-        stockCostValuation: parseFloat(stockCostValuation.toFixed(2)),
-        stockRetailValuation: parseFloat(stockRetailValuation.toFixed(2)),
-        stockPotentialProfit: parseFloat(stockPotentialProfit.toFixed(2)),
+        stockCostValuation: round2(stockCostValuation),
+        stockRetailValuation: round2(stockRetailValuation),
+        stockPotentialProfit: round2(stockPotentialProfit),
+        stockPotentialCommissionEuro,
+        stockNetPotentialToBoss,
         stockSharePercentage,
         lowStockCount,
         outOfStockCount,
@@ -436,8 +488,11 @@ export class AgentAnalytics {
       warehouses: workerAccountsWarehouses,
       workerWarehousesOnly: workerAccountsWarehouses.filter(w => !w.isMain),
       totalPendingFreeVapersAllWorkers,
-      totalPendingMoneyFromWorkers: parseFloat(totalPendingMoneyFromWorkers.toFixed(2)),
-      recentSettlements: allSettlements.slice(0, 25)
+      totalPendingMoneyFromWorkers: round2(totalPendingMoneyFromWorkers),
+      totalStockRetailWorkers: round2(totalStockRetailWorkers),
+      totalStockUnitsWorkers,
+      totalEarnedCommissionsEuro: round2(totalEarnedCommissionsEuro),
+      recentSettlements: allSettlements.filter(st => st.type !== 'customer_payment').slice(0, 25)
     };
 
     // =========================================================================
@@ -451,11 +506,12 @@ export class AgentAnalytics {
     );
 
     // =========================================================================
-    // 5. CONTROL DE "FIADOS" (DEUDAS DE CLIENTES) Y RESERVAS ACTIVAS (Punto 4)
+    // 5. CONTROL DE "FIADOS" (CUENTA CORRIENTE DE CLIENTES) Y RESERVAS ACTIVAS
     // =========================================================================
     const debtsAndReservations = this._computeDebtsAndReservations(
-      allSales,
+      rawAllSales,
       allReservations,
+      allSettlements,
       warehouseFilter
     );
 
@@ -846,48 +902,178 @@ export class AgentAnalytics {
     };
   }
 
-  /**
-   * Punto 4: Calcula las deudas pendientes de clientes ("Fiados") y las reservas activas.
-   */
-  _computeDebtsAndReservations(allSales, allReservations, warehouseFilter = 'all') {
-    const relevantSales = (!warehouseFilter || warehouseFilter === 'all')
-      ? allSales
-      : allSales.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === warehouseFilter);
+  _normalizeCustomerKey(name) {
+    return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
 
-    const pendingSales = relevantSales.filter(s => s.paymentStatus === 'pending');
+  /**
+   * Construye la Cuenta Corriente (cargos fiados, abonos parciales/totales, saldo vivo e historial)
+   * de cada cliente, agrupado por nombre normalizado.
+   */
+  computeCustomerAccounts(allSales = [], allSettlements = [], warehouseFilter = 'all') {
+    const round2 = (v) => parseFloat((Number(v) || 0).toFixed(2));
+    const hasWhFilter = Boolean(warehouseFilter && warehouseFilter !== 'all');
+
+    const relevantLedgerSales = (allSales || []).filter(s => {
+      if (s.paymentStatus !== 'pending' && s.paymentStatus !== 'settled') return false;
+      if (hasWhFilter && (s.warehouseId || MAIN_WAREHOUSE_ID) !== warehouseFilter) return false;
+      return true;
+    });
+
+    const scopedSaleIds = new Set(relevantLedgerSales.map(s => s.id));
+    const relevantPayments = (allSettlements || []).filter(st => {
+      if (st.type !== 'customer_payment') return false;
+      if (!hasWhFilter) return true;
+      if (st.productId && scopedSaleIds.has(st.productId)) return true;
+      return (st.warehouseId || MAIN_WAREHOUSE_ID) === warehouseFilter;
+    });
+
+    const customerMap = new Map();
+    const ensureCustomer = (rawName, whId = MAIN_WAREHOUSE_ID, whName = 'Mi Almacén (Principal)', dateStr = null) => {
+      const display = (rawName && String(rawName).trim()) ? String(rawName).trim() : 'Cliente sin nombre';
+      const key = this._normalizeCustomerKey(display);
+      if (!customerMap.has(key)) {
+        customerMap.set(key, {
+          customerKey: key,
+          customerName: display,
+          totalCharged: 0,
+          totalPaid: 0,
+          liveBalance: 0,
+          totalDebt: 0,
+          overpaidCredit: 0,
+          totalUnitsCharged: 0,
+          pendingUnits: 0,
+          openSalesCount: 0,
+          paymentsCount: 0,
+          primaryWarehouseId: whId || MAIN_WAREHOUSE_ID,
+          primaryWarehouseName: whName || 'Mi Almacén (Principal)',
+          oldestSaleDate: dateStr || new Date().toISOString(),
+          lastMovementDate: dateStr || new Date(0).toISOString(),
+          sales: [],
+          allLedgerSales: [],
+          payments: [],
+          movements: [],
+          movementsDesc: []
+        });
+      }
+      return customerMap.get(key);
+    };
+
+    relevantLedgerSales.forEach(s => {
+      const c = ensureCustomer(s.buyerName, s.warehouseId, s.warehouseName, s.timestamp);
+      const amount = round2(parseFloat(s.grossTotal) || 0);
+      const qty = parseInt(s.quantity, 10) || 0;
+
+      c.totalCharged = round2(c.totalCharged + amount);
+      c.totalUnitsCharged += qty;
+      c.allLedgerSales.push(s);
+      if (s.paymentStatus === 'pending') {
+        c.pendingUnits += qty;
+        c.openSalesCount += 1;
+        c.sales.push(s);
+      }
+      if (s.timestamp && new Date(s.timestamp) < new Date(c.oldestSaleDate)) {
+        c.oldestSaleDate = s.timestamp;
+      }
+      if (s.timestamp && new Date(s.timestamp) >= new Date(c.lastMovementDate)) {
+        c.lastMovementDate = s.timestamp;
+        c.primaryWarehouseId = s.warehouseId || c.primaryWarehouseId;
+        c.primaryWarehouseName = s.warehouseName || c.primaryWarehouseName;
+      }
+      c.movements.push({
+        id: s.id,
+        kind: 'charge',
+        timestamp: s.timestamp,
+        amount,
+        signedAmount: amount,
+        quantity: qty,
+        unitPrice: parseFloat(s.unitPrice) || 0,
+        productName: s.productName,
+        warehouseId: s.warehouseId || MAIN_WAREHOUSE_ID,
+        warehouseName: s.warehouseName || 'Mi Almacén (Principal)',
+        paymentStatus: s.paymentStatus,
+        notes: s.notes || ''
+      });
+    });
+
+    relevantPayments.forEach(st => {
+      const c = ensureCustomer(st.workerName, st.warehouseId, st.warehouseName, st.timestamp);
+      const amount = round2(parseFloat(st.amount) || 0);
+
+      c.totalPaid = round2(c.totalPaid + amount);
+      c.paymentsCount += 1;
+      c.payments.push(st);
+      if (st.timestamp && new Date(st.timestamp) > new Date(c.lastMovementDate)) {
+        c.lastMovementDate = st.timestamp;
+      }
+      c.movements.push({
+        id: st.id,
+        kind: 'payment',
+        timestamp: st.timestamp,
+        amount,
+        signedAmount: -amount,
+        paymentMethod: st.productName || 'Efectivo',
+        warehouseId: st.warehouseId || MAIN_WAREHOUSE_ID,
+        warehouseName: st.warehouseName || 'Mi Almacén (Principal)',
+        linkedSaleId: st.productId || null,
+        notes: st.notes || ''
+      });
+    });
 
     let totalPendingDebtAmount = 0;
     let pendingDebtUnits = 0;
-    const customerMap = new Map();
+    const allCustomerAccounts = [];
 
-    pendingSales.forEach(s => {
-      const amount = parseFloat(s.grossTotal) || 0;
-      const qty = parseInt(s.quantity, 10) || 0;
-      totalPendingDebtAmount += amount;
-      pendingDebtUnits += qty;
+    customerMap.forEach(c => {
+      c.liveBalance = round2(Math.max(0, c.totalCharged - c.totalPaid));
+      c.totalDebt = c.liveBalance;
+      c.overpaidCredit = round2(Math.max(0, c.totalPaid - c.totalCharged));
 
-      const customerKey = (s.buyerName && s.buyerName.trim()) ? s.buyerName.trim() : 'Cliente sin nombre';
-      if (!customerMap.has(customerKey)) {
-        customerMap.set(customerKey, {
-          customerName: customerKey,
-          totalDebt: 0,
-          totalUnits: 0,
-          salesCount: 0,
-          oldestSaleDate: s.timestamp,
-          sales: []
-        });
+      c.movements.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+      let running = 0;
+      c.movements.forEach(m => {
+        running = round2(running + m.signedAmount);
+        m.runningBalance = running;
+      });
+      c.movementsDesc = [...c.movements].reverse();
+      c.sales.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+      c.allLedgerSales.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+      c.payments.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+      if (c.liveBalance > 0.009) {
+        totalPendingDebtAmount = round2(totalPendingDebtAmount + c.liveBalance);
+        pendingDebtUnits += c.pendingUnits;
       }
-      const cEntry = customerMap.get(customerKey);
-      cEntry.totalDebt = parseFloat((cEntry.totalDebt + amount).toFixed(2));
-      cEntry.totalUnits += qty;
-      cEntry.salesCount += 1;
-      if (new Date(s.timestamp) < new Date(cEntry.oldestSaleDate)) {
-        cEntry.oldestSaleDate = s.timestamp;
-      }
-      cEntry.sales.push(s);
+      allCustomerAccounts.push(c);
     });
 
-    const debtorsByCustomer = Array.from(customerMap.values()).sort((a, b) => b.totalDebt - a.totalDebt);
+    const debtorsByCustomer = allCustomerAccounts
+      .filter(c => c.liveBalance > 0.009)
+      .sort((a, b) => b.liveBalance - a.liveBalance || new Date(b.lastMovementDate) - new Date(a.lastMovementDate));
+
+    const settledCustomers = allCustomerAccounts
+      .filter(c => c.liveBalance <= 0.009)
+      .sort((a, b) => new Date(b.lastMovementDate) - new Date(a.lastMovementDate));
+
+    const pendingSales = relevantLedgerSales
+      .filter(s => s.paymentStatus === 'pending')
+      .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+    return {
+      debtorsByCustomer,
+      settledCustomers,
+      allCustomerAccounts,
+      totalPendingDebtAmount,
+      pendingDebtUnits,
+      pendingSales
+    };
+  }
+
+  /**
+   * Punto 4: Calcula las deudas pendientes de clientes ("Fiados" con saldo vivo y abonos parciales) y reservas activas.
+   */
+  _computeDebtsAndReservations(allSales, allReservations, allSettlements = [], warehouseFilter = 'all') {
+    const accounts = this.computeCustomerAccounts(allSales, allSettlements, warehouseFilter);
 
     const activeReservations = allReservations.filter(r => {
       if ((r.status || 'active') !== 'active') return false;
@@ -909,10 +1095,12 @@ export class AgentAnalytics {
     });
 
     return {
-      pendingSales,
-      totalPendingDebtAmount: parseFloat(totalPendingDebtAmount.toFixed(2)),
-      pendingDebtUnits,
-      debtorsByCustomer,
+      pendingSales: accounts.pendingSales,
+      totalPendingDebtAmount: accounts.totalPendingDebtAmount,
+      pendingDebtUnits: accounts.pendingDebtUnits,
+      debtorsByCustomer: accounts.debtorsByCustomer,
+      settledCustomers: accounts.settledCustomers,
+      allCustomerAccounts: accounts.allCustomerAccounts,
       activeReservations,
       totalReservedUnits,
       totalReservedValue: parseFloat(totalReservedValue.toFixed(2))

@@ -12,7 +12,7 @@
  * - Proporciona reversión atómica de transacciones erróneas devolviendo el stock a su almacén
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.4';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
 
 export class AgentSales {
   /**
@@ -200,13 +200,21 @@ export class AgentSales {
       }
     }
 
-    const statusBadge = normalizedPaymentStatus === 'pending'
+    let finalSaleRecord = saleRecord;
+    if (normalizedPaymentStatus === 'pending' && cleanBuyerName) {
+      await this.reconcileCustomerLedger(cleanBuyerName);
+      finalSaleRecord = (await this.storage.getAllSales()).find(s => s.id === saleRecord.id) || saleRecord;
+    }
+
+    const statusBadge = finalSaleRecord.paymentStatus === 'pending'
       ? `⏳ PENDIENTE DE COBRO (${cleanBuyerName})`
-      : `✅ Cobrado (${paymentMethod})`;
+      : (finalSaleRecord.paymentStatus === 'settled'
+        ? `✅ Saldado con crédito previo (${cleanBuyerName})`
+        : `✅ Cobrado (${paymentMethod})`);
 
     return {
       success: true,
-      sale: saleRecord,
+      sale: finalSaleRecord,
       remainingStock: availableInWarehouse - qty,
       remainingGlobalStock: (product.stock || 0) - qty,
       message: `Venta en ${warehouseName}: ${grossTotal.toFixed(2)}€ · ${statusBadge}`
@@ -252,9 +260,170 @@ export class AgentSales {
   }
 
   /**
-   * Marca una venta fiada (`paymentStatus === 'pending'`) como cobrada (`'paid'`).
+   * Normaliza nombres de clientes para unificar cargos y abonos aunque varíen mayúsculas o espacios.
    */
-  async markSaleAsPaid(saleId, paymentMethod = null) {
+  _normalizeCustomerKey(name) {
+    return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  /**
+   * Reconcilia FIFO los cargos fiados (`pending` / `settled`) de un cliente frente a todos
+   * sus abonos registrados (`customer_payment`), actualizando `paymentStatus` sin doble conteo.
+   */
+  async reconcileCustomerLedger(customerName, { lastPaymentMethod = null, lastPaymentAt = null } = {}) {
+    const key = this._normalizeCustomerKey(customerName);
+    if (!key) {
+      return { customerName: '', totalCharged: 0, totalPaid: 0, liveBalance: 0 };
+    }
+
+    const [allSales, allSettlements] = await Promise.all([
+      this.storage.getAllSales(),
+      this.storage.getAllSettlements()
+    ]);
+
+    const customerSales = allSales
+      .filter(s => (s.paymentStatus === 'pending' || s.paymentStatus === 'settled') && this._normalizeCustomerKey(s.buyerName) === key)
+      .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+    const customerPayments = allSettlements
+      .filter(st => st.type === 'customer_payment' && this._normalizeCustomerKey(st.workerName) === key)
+      .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+    const round2 = (v) => parseFloat((Number(v) || 0).toFixed(2));
+    const totalCharged = round2(customerSales.reduce((sum, s) => sum + (parseFloat(s.grossTotal) || 0), 0));
+    const totalPaid = round2(customerPayments.reduce((sum, st) => sum + (parseFloat(st.amount) || 0), 0));
+    const liveBalance = round2(Math.max(0, totalCharged - totalPaid));
+
+    const latestPayment = customerPayments[customerPayments.length - 1] || null;
+    const resolvedPaidAt = lastPaymentAt || latestPayment?.timestamp || new Date().toISOString();
+    const resolvedMethod = lastPaymentMethod || latestPayment?.productName || null;
+
+    let remainingPaidToAllocate = totalPaid;
+    for (const sale of customerSales) {
+      const gross = round2(parseFloat(sale.grossTotal) || 0);
+      let desiredStatus = 'pending';
+      if (liveBalance <= 0.009 || (gross > 0 && remainingPaidToAllocate + 0.009 >= gross) || (gross === 0 && remainingPaidToAllocate > 0)) {
+        desiredStatus = 'settled';
+        remainingPaidToAllocate = round2(Math.max(0, remainingPaidToAllocate - gross));
+      } else {
+        remainingPaidToAllocate = 0;
+      }
+
+      if (desiredStatus === 'settled') {
+        if (sale.paymentStatus !== 'settled' || !sale.paidAt) {
+          sale.paymentStatus = 'settled';
+          sale.paidAt = sale.paidAt || resolvedPaidAt;
+          if (resolvedMethod && ['Efectivo', 'Tarjeta'].includes(resolvedMethod)) {
+            sale.paymentMethod = resolvedMethod;
+          }
+          await this.storage.saveSale(sale);
+        }
+      } else {
+        if (sale.paymentStatus !== 'pending' || sale.paidAt) {
+          sale.paymentStatus = 'pending';
+          sale.paidAt = null;
+          await this.storage.saveSale(sale);
+        }
+      }
+    }
+
+    return {
+      customerName: customerSales[0]?.buyerName || customerPayments[0]?.workerName || String(customerName).trim(),
+      totalCharged,
+      totalPaid,
+      liveBalance
+    };
+  }
+
+  /**
+   * Registra un abono parcial o total a la cuenta corriente de un cliente fiado.
+   */
+  async recordCustomerPayment({
+    customerName,
+    amount,
+    paymentMethod = 'Efectivo',
+    warehouseId = MAIN_WAREHOUSE_ID,
+    notes = '',
+    linkedSaleId = null
+  }) {
+    const cleanCustomerName = String(customerName || '').trim();
+    if (!cleanCustomerName) {
+      throw new Error('Debes indicar el nombre del cliente que realiza el abono.');
+    }
+
+    const parsedAmount = parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      throw new Error('El importe del abono debe ser mayor que 0€.');
+    }
+    const cleanAmount = parseFloat(parsedAmount.toFixed(2));
+
+    if (!['Efectivo', 'Tarjeta'].includes(paymentMethod)) {
+      throw new Error('El método de pago debe ser "Efectivo" o "Tarjeta".');
+    }
+
+    const targetWhId = (!warehouseId || warehouseId === 'all') ? MAIN_WAREHOUSE_ID : warehouseId;
+    const wh = await this.inventory.getWarehouse(targetWhId);
+    const nowIso = new Date().toISOString();
+
+    const settlement = await this.storage.saveSettlement({
+      id: 'cpay_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+      type: 'customer_payment',
+      warehouseId: targetWhId,
+      warehouseName: wh ? wh.name : 'Mi Almacén (Principal)',
+      workerName: cleanCustomerName,
+      productId: linkedSaleId || null,
+      productName: paymentMethod,
+      count: 0,
+      amount: cleanAmount,
+      notes: (notes || '').trim(),
+      timestamp: nowIso
+    });
+
+    const summary = await this.reconcileCustomerLedger(cleanCustomerName, {
+      lastPaymentMethod: paymentMethod,
+      lastPaymentAt: nowIso
+    });
+
+    const balanceText = summary.liveBalance > 0
+      ? `Quedan ${summary.liveBalance.toFixed(2)}€ pendientes`
+      : 'Cuenta saldada (0.00€)';
+
+    return {
+      success: true,
+      settlement,
+      summary,
+      message: `Abono de ${cleanAmount.toFixed(2)}€ (${paymentMethod}) de ${cleanCustomerName}. ${balanceText}.`
+    };
+  }
+
+  /**
+   * Elimina un abono erróneo de un cliente y recalcula su saldo vivo y el estado FIFO de sus cargos.
+   */
+  async deleteCustomerPayment(settlementId) {
+    const allSettlements = await this.storage.getAllSettlements();
+    const st = allSettlements.find(item => item.id === settlementId && item.type === 'customer_payment');
+    if (!st) {
+      throw new Error('Abono no encontrado.');
+    }
+
+    await this.storage.deleteSettlement(settlementId);
+
+    const summary = st.workerName
+      ? await this.reconcileCustomerLedger(st.workerName)
+      : { customerName: '', totalCharged: 0, totalPaid: 0, liveBalance: 0 };
+
+    return {
+      success: true,
+      deletedSettlement: st,
+      summary,
+      message: `Abono de ${Number(st.amount || 0).toFixed(2)}€ anulado. Saldo pendiente de ${summary.customerName || 'cliente'}: ${summary.liveBalance.toFixed(2)}€.`
+    };
+  }
+
+  /**
+   * Marca una venta fiada como cobrada registrando el abono correspondiente en la cuenta del cliente.
+   */
+  async markSaleAsPaid(saleId, paymentMethod = null, { warehouseId = null, amount = null, notes = '' } = {}) {
     const allSales = await this.storage.getAllSales();
     const sale = allSales.find(s => s.id === saleId);
     if (!sale) {
@@ -263,6 +432,60 @@ export class AgentSales {
 
     if (paymentMethod && !['Efectivo', 'Tarjeta'].includes(paymentMethod)) {
       throw new Error('El método de pago debe ser "Efectivo" o "Tarjeta".');
+    }
+
+    const resolvedMethod = paymentMethod || sale.paymentMethod || 'Efectivo';
+    const buyerName = String(sale.buyerName || '').trim();
+
+    if (buyerName && (sale.paymentStatus === 'pending' || sale.paymentStatus === 'settled')) {
+      const key = this._normalizeCustomerKey(buyerName);
+      const [latestSales, allSettlements] = await Promise.all([
+        this.storage.getAllSales(),
+        this.storage.getAllSettlements()
+      ]);
+      const round2 = (v) => parseFloat((Number(v) || 0).toFixed(2));
+      const totalCharged = round2(
+        latestSales
+          .filter(s => (s.paymentStatus === 'pending' || s.paymentStatus === 'settled') && this._normalizeCustomerKey(s.buyerName) === key)
+          .reduce((sum, s) => sum + (parseFloat(s.grossTotal) || 0), 0)
+      );
+      const totalPaid = round2(
+        allSettlements
+          .filter(st => st.type === 'customer_payment' && this._normalizeCustomerKey(st.workerName) === key)
+          .reduce((sum, st) => sum + (parseFloat(st.amount) || 0), 0)
+      );
+      const currentLiveBalance = round2(Math.max(0, totalCharged - totalPaid));
+      const targetAmount = amount !== null && amount !== undefined
+        ? round2(parseFloat(amount))
+        : round2(Math.min(parseFloat(sale.grossTotal) || 0, currentLiveBalance));
+
+      if (targetAmount > 0) {
+        const res = await this.recordCustomerPayment({
+          customerName: buyerName,
+          amount: targetAmount,
+          paymentMethod: resolvedMethod,
+          warehouseId: warehouseId || sale.warehouseId || MAIN_WAREHOUSE_ID,
+          notes: notes || `Cobro ${sale.quantity}x ${sale.productName}`,
+          linkedSaleId: sale.id
+        });
+        const refreshedSale = (await this.storage.getAllSales()).find(s => s.id === saleId) || sale;
+        return {
+          success: true,
+          sale: refreshedSale,
+          settlement: res.settlement,
+          summary: res.summary,
+          message: res.message
+        };
+      }
+
+      const summary = await this.reconcileCustomerLedger(buyerName, { lastPaymentMethod: resolvedMethod });
+      const refreshedSale = (await this.storage.getAllSales()).find(s => s.id === saleId) || sale;
+      return {
+        success: true,
+        sale: refreshedSale,
+        summary,
+        message: `Cuenta de ${buyerName} conciliada (Saldo: ${summary.liveBalance.toFixed(2)}€).`
+      };
     }
 
     sale.paymentStatus = 'paid';
@@ -292,9 +515,10 @@ export class AgentSales {
       throw new Error('Venta no encontrada.');
     }
 
+    const oldBuyerName = sale.buyerName || '';
     if (buyerName !== undefined && buyerName !== null) {
       const cleanBuyer = String(buyerName).trim();
-      if (sale.paymentStatus === 'pending' && !cleanBuyer) {
+      if ((sale.paymentStatus === 'pending' || sale.paymentStatus === 'settled') && !cleanBuyer) {
         throw new Error('Las ventas fiadas deben conservar el nombre del cliente.');
       }
       sale.buyerName = cleanBuyer;
@@ -304,6 +528,11 @@ export class AgentSales {
     }
 
     await this.storage.saveSale(sale);
+
+    if ((sale.paymentStatus === 'pending' || sale.paymentStatus === 'settled') && this._normalizeCustomerKey(oldBuyerName) !== this._normalizeCustomerKey(sale.buyerName)) {
+      if (oldBuyerName) await this.reconcileCustomerLedger(oldBuyerName);
+      if (sale.buyerName) await this.reconcileCustomerLedger(sale.buyerName);
+    }
 
     return {
       success: true,
@@ -359,6 +588,11 @@ export class AgentSales {
 
     // Eliminar la venta del registro
     await this.storage.deleteSale(saleId);
+
+    // Si la venta pertenecía a una cuenta corriente de cliente, reconciliar su saldo vivo
+    if ((sale.paymentStatus === 'pending' || sale.paymentStatus === 'settled') && sale.buyerName) {
+      await this.reconcileCustomerLedger(sale.buyerName);
+    }
 
     return {
       success: true,

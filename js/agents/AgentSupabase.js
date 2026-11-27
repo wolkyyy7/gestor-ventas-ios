@@ -9,8 +9,8 @@
  * - Mantener la app funcional offline usando IndexedDB como caché local inmediata
  */
 
-import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=5.4';
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.4';
+import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=5.5';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
 
 const SUPABASE_CONFIG_KEY = 'gv_supabase_config';
 
@@ -556,7 +556,7 @@ export class AgentSupabase {
   async pushAllLocalToCloud() {
     if (!this.isConfigured() || !this.storage) return { pushed: false };
 
-    const [warehouses, products, sales, reservations, transfers, settlements, authCfg, orders] = await Promise.all([
+    const [warehouses, products, sales, reservations, transfers, settlements, authCfg, ntfyCfg, commCfg, orders] = await Promise.all([
       this.storage.getAllWarehouses(),
       this.storage.getAllProducts(),
       this.storage.getAllSales(),
@@ -564,6 +564,8 @@ export class AgentSupabase {
       this.storage.getAllTransfers(),
       this.storage.getAllSettlements(),
       this.storage.getConfig('auth_config', null),
+      this.storage.getConfig('ntfy_config', null),
+      this.storage.getConfig('worker_commissions_config', null),
       this.storage.getAllOrders()
     ]);
 
@@ -638,6 +640,12 @@ export class AgentSupabase {
     }
     if (authCfg) {
       await this.upsertConfig('auth_config', authCfg);
+    }
+    if (ntfyCfg) {
+      await this.upsertConfig('ntfy_config', ntfyCfg);
+    }
+    if (commCfg) {
+      await this.upsertConfig('worker_commissions_config', commCfg);
     }
 
     this.lastSyncAt = new Date().toISOString();
@@ -962,6 +970,9 @@ export class AgentSupabase {
       } else if (table === 'app_config') {
         if (!isDelete && payload.new?.key && payload.new.key !== 'local_device_session' && payload.new.key !== 'clean_order_v5_2_applied') {
           await this.storage.setConfig(payload.new.key, payload.new.value, { skipCloudSync: true });
+          if (this.onRemoteEvent) {
+            this.onRemoteEvent({ type: 'CONFIG_SYNC', key: payload.new.key, source: 'supabase' });
+          }
         }
       } else if (table === 'orders') {
         if (isDelete) {

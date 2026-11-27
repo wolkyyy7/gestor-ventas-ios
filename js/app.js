@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.4';
-import { AgentInventory } from './agents/AgentInventory.js?v=5.4';
-import { AgentSales } from './agents/AgentSales.js?v=5.4';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.4';
-import { AgentAuth } from './agents/AgentAuth.js?v=5.4';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=5.4';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.4';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=5.4';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.5';
+import { AgentInventory } from './agents/AgentInventory.js?v=5.5';
+import { AgentSales } from './agents/AgentSales.js?v=5.5';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.5';
+import { AgentAuth } from './agents/AgentAuth.js?v=5.5';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=5.5';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.5';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=5.5';
 
-const APP_VERSION = 'v5.4';
+const APP_VERSION = 'v5.5';
 
 class AppController {
   constructor() {
@@ -101,6 +101,7 @@ class AppController {
       await this.cloudSyncAgent.init((evt) => this.handleRemoteSyncEvent(evt));
     }
     await this.authAgent.init();
+    await this.notificationsAgent.syncWithCloudConfig({ isBoss: this.authAgent.isBoss() });
 
     // Si inicia en Modo Trabajador, fijar filtros a su almacén asignado
     if (this.authAgent.isWorker()) {
@@ -181,7 +182,11 @@ class AppController {
 
   async handleRemoteSyncEvent(evt) {
     if (!evt) return;
-    if (evt.type === 'SALE_EVENT' && evt.sale) {
+    if (evt.type === 'CONFIG_SYNC' && evt.key === 'ntfy_config') {
+      await this.notificationsAgent.syncWithCloudConfig({ isBoss: false });
+      this.applyRoleUI();
+      this._scheduleReactiveRefresh();
+    } else if (evt.type === 'SALE_EVENT' && evt.sale) {
       const s = evt.sale;
       const whLabel = s.workerName || s.warehouseName || 'Trabajador';
       if (this.authAgent.isBoss()) {
@@ -447,7 +452,9 @@ class AppController {
       const now = Date.now();
       if (this._lastResumeSyncAt && now - this._lastResumeSyncAt < 5000) return;
       this._lastResumeSyncAt = now;
-      this.supabaseAgent.reconnectAndSync().catch(() => {});
+      this.supabaseAgent.reconnectAndSync()
+        .then(() => this.notificationsAgent.syncWithCloudConfig({ isBoss: this.authAgent.isBoss() }))
+        .catch(() => {});
     };
 
     document.addEventListener('visibilitychange', () => {
@@ -560,11 +567,12 @@ class AppController {
     const isWorker = this.authAgent.isWorker();
     const assignedWhId = this.authAgent.getAssignedWarehouseId();
 
-    const [warehouses, valuation, allActiveReservations, allSalesRaw] = await Promise.all([
+    const [warehouses, valuation, allActiveReservations, allSalesRaw, allSettlementsRaw] = await Promise.all([
       this.inventoryAgent.getWarehouses(),
       this.inventoryAgent.getInventoryValuation('all'),
       this.inventoryAgent.getReservations({ status: 'active', warehouseId: isWorker ? assignedWhId : 'all' }),
-      this.storageAgent.getAllSales()
+      this.storageAgent.getAllSales(),
+      this.storageAgent.getAllSettlements()
     ]);
 
     const allSales = isWorker
@@ -572,8 +580,13 @@ class AppController {
       : allSalesRaw;
     const activeReservations = allActiveReservations;
 
-    const pendingSales = allSales.filter(s => s.paymentStatus === 'pending');
-    const totalPendingDebtAmount = pendingSales.reduce((sum, s) => sum + (parseFloat(s.grossTotal) || 0), 0);
+    const customerAccountsSummary = this.analyticsAgent.computeCustomerAccounts(
+      allSalesRaw,
+      allSettlementsRaw,
+      isWorker ? assignedWhId : 'all'
+    );
+    const pendingSales = customerAccountsSummary.pendingSales || [];
+    const totalPendingDebtAmount = customerAccountsSummary.totalPendingDebtAmount || 0;
 
     // En Modo Trabajador bloquear al almacén asignado
     if (isWorker && assignedWhId) {
@@ -652,9 +665,9 @@ class AppController {
 
           <button 
             type="button"
-            onclick="window.app.openSalesHistoryModal()"
+            onclick="window.app.openCustomerDebtorsModal()"
             class="btn-pressable px-3 py-1.5 rounded-full text-xs font-medium ${
-              pendingSales.length > 0
+              totalPendingDebtAmount > 0
                 ? 'bg-amber-400/15 text-amber-200 border border-amber-400/20'
                 : 'bg-white/10 text-slate-300 border border-white/10'
             } whitespace-nowrap tabular-nums"
@@ -847,10 +860,22 @@ class AppController {
     const isWorker = this.authAgent.isWorker();
     const assignedWh = this.authAgent.getAssignedWarehouseId();
 
-    const [productsList, warehouses] = await Promise.all([
+    const [productsList, warehouses, allSales, allReservations] = await Promise.all([
       this.inventoryAgent.getProducts({ warehouseId: 'all' }),
-      this.inventoryAgent.getWarehouses()
+      this.inventoryAgent.getWarehouses(),
+      this.storageAgent.getAllSales(),
+      this.storageAgent.getAllReservations()
     ]);
+    const datalist = document.getElementById('existingCustomersDatalist');
+    if (datalist) {
+      const uniqueNames = new Set();
+      (allSales || []).forEach(s => { if (s.buyerName && s.buyerName.trim()) uniqueNames.add(s.buyerName.trim()); });
+      (allReservations || []).forEach(r => { if (r.customerName && r.customerName.trim()) uniqueNames.add(r.customerName.trim()); });
+      datalist.innerHTML = Array.from(uniqueNames)
+        .sort((a, b) => a.localeCompare(b))
+        .map(n => `<option value="${this._escapeHtml(n)}"></option>`)
+        .join('');
+    }
     const product = productsList.find(p => p.id === productId);
     if (!product) return;
 
@@ -1130,29 +1155,51 @@ class AppController {
     if (!sale) return;
     try {
       const targetWhId = sale.warehouseId || MAIN_WAREHOUSE_ID;
-      const [warehouse, updatedProduct, allSales] = await Promise.all([
+      const [warehouse, updatedProduct, allSales, allSettlements, commCfg] = await Promise.all([
         this.inventoryAgent.getWarehouse(targetWhId),
         this.inventoryAgent.getProduct(sale.productId),
-        this.storageAgent.getAllSales()
+        this.storageAgent.getAllSales(),
+        this.storageAgent.getAllSettlements(),
+        this.inventoryAgent.getWorkerCommissionsConfig()
       ]);
 
       const remainingStock = updatedProduct
         ? (updatedProduct.stockByWarehouse?.[targetWhId] ?? updatedProduct.stock ?? 0)
         : 0;
 
-      // Calcular progreso de vapers gratis del trabajador para incluirlo en la notificación ntfy
+      // Calcular progreso de vapers gratis, comisión en € y deuda líquida del trabajador para la notificación ntfy
       let workerPendingFreeVapers = 0;
       let workerProgressText = '';
+      let workerEarnedCommissionEuro = 0;
+      let workerPendingMoney = null;
       if (warehouse && !warehouse.isMain) {
-        const whUnitsSold = allSales
-          .filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === targetWhId && s.paymentStatus !== 'pending')
+        const whSales = allSales.filter(s => (s.warehouseId || MAIN_WAREHOUSE_ID) === targetWhId);
+        const whPaidUnits = whSales
+          .filter(s => s.paymentStatus !== 'pending')
           .reduce((sum, s) => sum + (parseInt(s.quantity, 10) || 0), 0);
         const everyN = Math.max(1, parseInt(warehouse.rewardEveryNUnits, 10) || 5);
         const freeU = Math.max(1, parseInt(warehouse.rewardFreeUnits, 10) || 1);
-        const earned = Math.floor(whUnitsSold / everyN) * freeU;
+        const earned = Math.floor(whPaidUnits / everyN) * freeU;
         const delivered = parseInt(warehouse.rewardVapersDelivered, 10) || 0;
         workerPendingFreeVapers = Math.max(0, earned - delivered);
-        workerProgressText = `${whUnitsSold % everyN}/${everyN} para próximo regalo`;
+        workerProgressText = `${whPaidUnits % everyN}/${everyN} para próximo regalo`;
+
+        const commRate = Math.max(0, parseFloat(commCfg?.[targetWhId]?.commissionPerUnit) || 0);
+        if (commRate > 0) {
+          workerEarnedCommissionEuro = parseFloat((whPaidUnits * commRate).toFixed(2));
+        }
+        const directPaid = whSales
+          .filter(s => s.paymentStatus === 'paid')
+          .reduce((sum, s) => sum + (parseFloat(s.grossTotal) || 0), 0);
+        const custPaid = (allSettlements || [])
+          .filter(st => st.type === 'customer_payment' && (st.warehouseId || MAIN_WAREHOUSE_ID) === targetWhId)
+          .reduce((sum, st) => sum + (parseFloat(st.amount) || 0), 0);
+        const commPaidDirect = (allSettlements || [])
+          .filter(st => st.type === 'commission_payout' && st.warehouseId === targetWhId)
+          .reduce((sum, st) => sum + (parseFloat(st.amount) || 0), 0);
+        const commOffset = Math.max(0, workerEarnedCommissionEuro - commPaidDirect);
+        const netOblig = Math.max(0, (directPaid + custPaid) - commOffset);
+        workerPendingMoney = Math.max(0, netOblig - (parseFloat(warehouse.cashSettledAmount) || 0));
       }
 
       const isWorkerSession = this.authAgent.isWorker();
@@ -1164,6 +1211,8 @@ class AppController {
         remainingStock,
         workerPendingFreeVapers,
         workerProgressText,
+        workerEarnedCommissionEuro,
+        workerPendingMoney,
         isWorkerSession
       }).catch(() => {});
 
@@ -1359,6 +1408,7 @@ class AppController {
         const dateFormatted = new Date(s.timestamp).toLocaleDateString([], { day: '2-digit', month: '2-digit' });
         const isCash = s.paymentMethod === 'Efectivo';
         const isPending = s.paymentStatus === 'pending';
+        const isSettled = s.paymentStatus === 'settled';
         const wh = whMap.get(s.warehouseId);
         const whIcon = wh ? wh.icon : '🏠';
         const whName = s.warehouseName || (wh ? wh.name : 'Mi Almacén (Principal)');
@@ -1370,6 +1420,8 @@ class AppController {
                 <div class="flex flex-wrap items-center gap-1.5 mb-1">
                   ${isPending ? `
                     <span class="badge badge-fiado">⏳ FIADO / PENDIENTE</span>
+                  ` : isSettled ? `
+                    <span class="badge badge-ok-stock">✓ Fiado Saldado</span>
                   ` : `
                     <span class="badge ${isCash ? 'badge-payment-cash' : 'badge-payment-card'}">
                       ${isCash ? '💵 Efectivo' : '💳 Tarjeta'}
@@ -1385,21 +1437,27 @@ class AppController {
                   ${s.quantity} x ${s.unitPrice.toFixed(2)}€ = <strong class="text-white">${s.grossTotal.toFixed(2)}€</strong>
                   ${isWorker ? '' : `<span class="text-emerald-400 font-semibold ml-1.5">(+${s.netProfit.toFixed(2)}€)</span>`}
                 </div>
-                ${s.buyerName ? `<div class="text-[11px] text-indigo-300 font-semibold mt-0.5">👤 Cliente: ${this._escapeHtml(s.buyerName)}</div>` : ''}
+                ${s.buyerName ? `<div class="text-[11px] text-indigo-300 font-semibold mt-0.5 cursor-pointer hover:underline" onclick="document.getElementById('salesHistoryModal')?.classList.remove('active'); window.app.openCustomerLedgerModal('${this._escJsAttr(s.buyerName)}')">👤 Cliente: ${this._escapeHtml(s.buyerName)} ${isPending || isSettled ? '›' : ''}</div>` : ''}
                 ${s.notes ? `<div class="text-[11px] text-slate-300 mt-0.5">📝 ${this._escapeHtml(s.notes)}</div>` : ''}
               </div>
 
               <div class="flex flex-col gap-1 items-end flex-shrink-0">
                 ${isPending ? `
                   <div class="flex gap-1 mb-1">
+                    ${s.buyerName ? `
+                      <button 
+                        onclick="document.getElementById('salesHistoryModal')?.classList.remove('active'); window.app.openCustomerLedgerModal('${this._escJsAttr(s.buyerName)}')"
+                        class="btn-pressable bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 px-2 py-1 rounded-lg text-[10px] font-bold"
+                      >💳 Abono</button>
+                    ` : ''}
                     <button 
                       onclick="window.app.markPendingSalePaid('${s.id}', 'Efectivo', true)"
                       class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold"
-                    >💵 Cobrar Efec.</button>
+                    >💵 Cobrar</button>
                     <button 
                       onclick="window.app.markPendingSalePaid('${s.id}', 'Tarjeta', true)"
                       class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold"
-                    >💳 Tarjeta</button>
+                    >💳</button>
                   </div>
                 ` : ''}
                 <div class="flex items-center gap-1.5">
@@ -1429,9 +1487,24 @@ class AppController {
 
   async markPendingSalePaid(saleId, paymentMethod = 'Efectivo', refreshHistoryModal = false) {
     try {
-      const res = await this.salesAgent.markSaleAsPaid(saleId, paymentMethod);
+      const assignedWh = this.authAgent.getAssignedWarehouseId();
+      const isWorker = this.authAgent.isWorker();
+      const res = await this.salesAgent.markSaleAsPaid(saleId, paymentMethod, {
+        warehouseId: isWorker && assignedWh ? assignedWh : null
+      });
       if (this.lastCompletedSale && this.lastCompletedSale.id === saleId && res.sale) {
         this.lastCompletedSale = res.sale;
+      }
+      if (res.settlement && res.summary && res.sale?.buyerName) {
+        const wh = await this.inventoryAgent.getWarehouse(res.settlement.warehouseId);
+        this.notificationsAgent.notifyCustomerPayment({
+          customerName: res.sale.buyerName,
+          amount: res.settlement.amount,
+          paymentMethod,
+          remainingBalance: res.summary.liveBalance,
+          warehouse: wh,
+          isWorkerSession: isWorker
+        }).catch(() => {});
       }
       this._playChime('success');
       this.showToast(res.message, '✅');
@@ -3104,9 +3177,12 @@ class AppController {
     const notesInput = document.getElementById('inputWhNotes');
     const rewardEveryInput = document.getElementById('inputWhRewardEveryN');
     const rewardFreeInput = document.getElementById('inputWhRewardFreeUnits');
+    const commissionGroup = document.getElementById('whCommissionPerUnitGroup');
+    const commissionInput = document.getElementById('inputWhCommissionPerUnit');
     const pinGroup = document.getElementById('whWorkerPinGroup');
     const pinInput = document.getElementById('inputWhWorkerPin');
     const btnDelete = document.getElementById('btnDeleteWarehouse');
+    const commCfg = await this.inventoryAgent.getWorkerCommissionsConfig();
 
     if (warehouseId) {
       const wh = await this.inventoryAgent.getWarehouse(warehouseId);
@@ -3117,6 +3193,8 @@ class AppController {
       if (notesInput) notesInput.value = wh.notes || '';
       if (rewardEveryInput) rewardEveryInput.value = wh.rewardEveryNUnits || 5;
       if (rewardFreeInput) rewardFreeInput.value = wh.rewardFreeUnits || 1;
+      if (commissionGroup) commissionGroup.classList.toggle('hidden', !!wh.isMain);
+      if (commissionInput) commissionInput.value = Number(commCfg?.[wh.id]?.commissionPerUnit || 0);
       if (pinGroup) pinGroup.classList.toggle('hidden', !!wh.isMain);
       if (pinInput) pinInput.value = wh.workerPin || this.storageAgent._generateDefaultWorkerPin();
       this.selectedWarehouseIcon = wh.icon || '🏠';
@@ -3130,6 +3208,8 @@ class AppController {
       if (notesInput) notesInput.value = '';
       if (rewardEveryInput) rewardEveryInput.value = 5;
       if (rewardFreeInput) rewardFreeInput.value = 1;
+      if (commissionGroup) commissionGroup.classList.remove('hidden');
+      if (commissionInput) commissionInput.value = '0';
       if (pinGroup) pinGroup.classList.remove('hidden');
       if (pinInput) pinInput.value = this.storageAgent._generateDefaultWorkerPin();
       this.selectedWarehouseIcon = '👤';
@@ -3156,6 +3236,13 @@ class AppController {
     const previewEl = document.getElementById('whRewardPreviewText');
     if (previewEl) {
       previewEl.textContent = `Por cada ${everyN} ${everyN === 1 ? 'vaper' : 'vapers'} que venda este trabajador, le regalas ${freeU} ${freeU === 1 ? 'vaper gratis' : 'vapers gratis'}.`;
+    }
+    const commVal = Math.max(0, parseFloat(document.getElementById('inputWhCommissionPerUnit')?.value) || 0);
+    const commPreviewEl = document.getElementById('whCommissionPreviewText');
+    if (commPreviewEl) {
+      commPreviewEl.textContent = commVal > 0
+        ? `Gana ${commVal.toFixed(2)} € por cada unidad vendida y cobrada (se descuenta al hacer caja).`
+        : 'Sin comisión fija en € (0.00 €/ud). Si pones ej. 2.00 €, se restará automáticamente de lo que debe entregar.';
     }
   }
 
@@ -3188,6 +3275,7 @@ class AppController {
     const notes = document.getElementById('inputWhNotes')?.value || '';
     const rewardEveryNUnits = Math.max(1, parseInt(document.getElementById('inputWhRewardEveryN')?.value, 10) || 5);
     const rewardFreeUnits = Math.max(1, parseInt(document.getElementById('inputWhRewardFreeUnits')?.value, 10) || 1);
+    const commissionPerUnit = Math.max(0, parseFloat(document.getElementById('inputWhCommissionPerUnit')?.value) || 0);
     const workerPin = document.getElementById('inputWhWorkerPin')?.value || '';
     const icon = this.selectedWarehouseIcon || '👤';
 
@@ -3199,7 +3287,8 @@ class AppController {
           icon,
           notes,
           rewardEveryNUnits,
-          rewardFreeUnits
+          rewardFreeUnits,
+          commissionPerUnit
         };
         if (this.editingWarehouseId !== MAIN_WAREHOUSE_ID && workerPin) {
           updatePayload.workerPin = workerPin;
@@ -3214,7 +3303,8 @@ class AppController {
           notes,
           workerPin,
           rewardEveryNUnits,
-          rewardFreeUnits
+          rewardFreeUnits,
+          commissionPerUnit
         });
         if (this.activeTab === 'inventory' && this.inventorySubView === 'stock') {
           this.selectedInventoryWarehouse = created.id;
@@ -4178,7 +4268,7 @@ class AppController {
 
     return `
       <div class="space-y-3">
-        <!-- Lista Agrupada de Vendedores idéntica a la preview iOS 27 (con desplegable al tocar) -->
+        <!-- Lista Agrupada de Vendedores (3 Indicadores de Consignación iOS 27) -->
         ${workersList.length === 0 ? `
           <div class="ios-glass-card p-4 text-center text-xs text-slate-400">
             Aún no has creado almacenes de trabajadores.
@@ -4186,59 +4276,168 @@ class AppController {
           </div>
         ` : `
           <div class="ios-grouped-list">
-            ${workersList.map(w => `
-              <details class="ios-grouped-accordion">
-                <summary>
-                  <div>
-                    <div class="text-sm font-semibold text-white">${this._escapeHtml(w.workerName || w.name)}</div>
-                    <div class="text-xs text-slate-400 mt-0.5">
-                      ${w.unitsTowardNextFreeVaper}/${w.rewardEveryNUnits} hacia próximo regalo${w.pendingFreeVapers > 0 ? ` · <span class="text-emerald-300 font-medium">${w.pendingFreeVapers} pendiente${w.pendingFreeVapers === 1 ? '' : 's'}</span>` : ''}
+            ${workersList.map(w => {
+              const historyList = w.workerSettlements || [];
+              return `
+                <details class="ios-grouped-accordion">
+                  <summary>
+                    <div>
+                      <div class="text-sm font-semibold text-white">${w.icon || '👤'} ${this._escapeHtml(w.workerName || w.name)}</div>
+                      <div class="text-xs text-slate-400 mt-0.5 tabular-nums">
+                        Stock: <strong class="text-slate-200">${w.currentStockUnits} uds</strong> (${w.stockRetailValuation.toFixed(0)} €)
+                        ${w.commissionPerUnit > 0 ? ` · Com.: <span class="text-indigo-300">${w.netCommissionOffset.toFixed(2)} €</span>` : ''}
+                        ${w.pendingFreeVapers > 0 ? ` · <span class="text-emerald-300 font-medium">${w.pendingFreeVapers} regalo${w.pendingFreeVapers === 1 ? '' : 's'}</span>` : ''}
+                      </div>
                     </div>
-                  </div>
-                  <div class="text-right">
-                    <div class="text-sm font-bold ${w.pendingMoneyToDeliver > 0 ? 'text-amber-300' : 'text-emerald-400'} tabular-nums">
-                      ${w.pendingMoneyToDeliver.toFixed(2)} €
+                    <div class="text-right">
+                      <div class="text-sm font-bold ${w.pendingMoneyToDeliver > 0 ? 'text-amber-300' : 'text-emerald-400'} tabular-nums">
+                        ${w.pendingMoneyToDeliver.toFixed(2)} €
+                      </div>
+                      <div class="text-xs text-slate-400">${w.pendingMoneyToDeliver > 0 ? 'Deuda líquida' : 'Al día'}</div>
                     </div>
-                    <div class="text-xs text-slate-400">${w.pendingMoneyToDeliver > 0 ? 'Por entregar' : 'Al día'}</div>
-                  </div>
-                </summary>
-                <div class="ios-grouped-accordion-body space-y-3">
-                  <div class="flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
-                    <span>Vendidos total: <strong class="text-white">${w.allTimeUnitsSold} uds</strong></span>
-                    <span>Recaudado: <strong class="text-white">${w.totalCollectedPaid.toFixed(2)} €</strong> (💵 ${w.collectedCash.toFixed(0)}€ / 💳 ${w.collectedCard.toFixed(0)}€)</span>
-                    <span>Liquidado: <strong class="text-emerald-400">${w.cashSettledAmount.toFixed(2)} €</strong></span>
-                  </div>
+                  </summary>
+                  <div class="ios-grouped-accordion-body space-y-3">
+                    <!-- INDICADOR 1: DEUDA LÍQUIDA (DINERO EN SU MANO) -->
+                    <div class="bg-white/5 p-3 rounded-2xl border border-amber-400/20 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-amber-300">💶 1. Deuda Líquida (Dinero en su mano)</span>
+                        <span class="text-sm font-black ${w.pendingMoneyToDeliver > 0 ? 'text-amber-300' : 'text-emerald-400'} tabular-nums">
+                          ${w.pendingMoneyToDeliver.toFixed(2)} €
+                        </span>
+                      </div>
+                      <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-300 tabular-nums">
+                        <div class="flex justify-between"><span>Cobrado en ventas:</span><strong class="text-white">${w.totalCollectedPaid.toFixed(2)} €</strong></div>
+                        <div class="flex justify-between"><span>💵 ${w.collectedCash.toFixed(0)}€ / 💳 ${w.collectedCard.toFixed(0)}€</span><span class="text-slate-400">${w.globalPaidUnitsSold} uds</span></div>
+                        ${w.netCommissionOffset > 0 ? `
+                          <div class="flex justify-between text-indigo-300"><span>− Comisiones (${w.commissionPerUnit.toFixed(2)}€/ud):</span><strong>-${w.netCommissionOffset.toFixed(2)} €</strong></div>
+                          <div class="flex justify-between"><span>Neto a entregarte:</span><strong class="text-white">${w.netObligationToBoss.toFixed(2)} €</strong></div>
+                        ` : ''}
+                        <div class="flex justify-between"><span>− Ya entregado:</span><strong class="text-emerald-400">${w.cashSettledAmount.toFixed(2)} €</strong></div>
+                        <div class="flex justify-between"><span>= Pendiente hoy:</span><strong class="${w.pendingMoneyToDeliver > 0 ? 'text-amber-300' : 'text-emerald-400'}">${w.pendingMoneyToDeliver.toFixed(2)} €</strong></div>
+                      </div>
+                      <button 
+                        type="button"
+                        onclick="window.app.openSettleCashModal('${this._escJsAttr(w.warehouseId)}', ${w.pendingMoneyToDeliver})"
+                        class="btn-pressable w-full py-2 px-3 rounded-xl bg-white/15 hover:bg-white/20 text-white text-xs font-semibold"
+                      >💶 Registrar entrega / abono parcial</button>
+                    </div>
 
-                  <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div class="h-full bg-emerald-400 rounded-full" style="width: ${Math.min(100, w.nextFreeVaperProgressPct)}%"></div>
-                  </div>
+                    <!-- INDICADOR 2: VALOR DEL STOCK EN ALMACÉN (CONSIGNACIÓN) -->
+                    <div class="bg-white/5 p-3 rounded-2xl border border-indigo-400/20 space-y-1.5">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-300">📦 2. Stock en su Almacén (Consignación)</span>
+                        <span class="text-xs font-bold text-white tabular-nums">${w.currentStockUnits} uds = ${w.stockRetailValuation.toFixed(2)} €</span>
+                      </div>
+                      <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-2 tabular-nums">
+                        <span>Al venderlo todo (PVP): <strong class="text-white">${w.stockRetailValuation.toFixed(2)} €</strong></span>
+                        ${w.commissionPerUnit > 0 ? `
+                          <span>Neto para ti tras comisión: <strong class="text-emerald-300">${w.stockNetPotentialToBoss.toFixed(2)} €</strong></span>
+                        ` : `
+                          <span>Sabores disponibles: <strong class="text-slate-200">${w.productsWithStock}</strong></span>
+                        `}
+                      </div>
+                      ${w.totalPendingFiados > 0 ? `
+                        <div class="text-[11px] text-amber-300/90 tabular-nums">
+                          ⏳ Fiados sin cobrar en esta zona: <strong>${w.totalPendingFiados.toFixed(2)} €</strong> (se sumarán al cobrarlos)
+                        </div>
+                      ` : ''}
+                    </div>
 
-                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <button 
-                      type="button"
-                      onclick="window.app.openSettleCashModal('${w.warehouseId}', ${w.pendingMoneyToDeliver})"
-                      class="btn-pressable py-2 px-3 rounded-xl bg-white/15 hover:bg-white/20 text-white text-xs font-semibold"
-                    >💶 Liquidar dinero</button>
-                    <button 
-                      type="button"
-                      onclick="window.app.openDeliverRewardModal('${w.warehouseId}', ${Math.max(1, w.pendingFreeVapers)})"
-                      class="btn-pressable py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/35 text-emerald-200 text-xs font-semibold"
-                    >🎁 Entregar regalo (${w.pendingFreeVapers})</button>
-                    <button 
-                      type="button"
-                      onclick="window.app.openWarehouseModal('${w.warehouseId}')"
-                      class="btn-pressable py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-medium"
-                    >⚙️ Comisión (${w.rewardFreeUnits}/${w.rewardEveryNUnits})</button>
+                    <!-- INDICADOR 3: BALANCE DE COMISIONES (LO QUE TÚ LE DEBES) -->
+                    <div class="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-400/25 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-300">🏆 3. Balance de Comisiones (A su favor)</span>
+                        <span class="text-xs font-bold text-emerald-300 tabular-nums">
+                          ${w.commissionPerUnit > 0 ? `${w.earnedCommissionEuro.toFixed(2)} €` : `${w.pendingFreeVapers} regalo(s)`}
+                        </span>
+                      </div>
+
+                      ${w.commissionPerUnit > 0 ? `
+                        <div class="text-[11px] text-slate-200 space-y-0.5 tabular-nums">
+                          <div class="flex justify-between">
+                            <span>Comisión acumulada (${w.globalPaidUnitsSold} uds × ${w.commissionPerUnit.toFixed(2)}€):</span>
+                            <strong class="text-emerald-300">${w.earnedCommissionEuro.toFixed(2)} €</strong>
+                          </div>
+                          ${w.commissionPaidDirectly > 0 ? `
+                            <div class="flex justify-between text-slate-400">
+                              <span>− Pagado directamente aparte:</span>
+                              <strong>-${w.commissionPaidDirectly.toFixed(2)} €</strong>
+                            </div>
+                          ` : ''}
+                          <div class="text-[10px] text-emerald-200/90 pt-0.5">
+                            Cruce caja: ${w.totalCollectedPaid.toFixed(0)}€ ventas − ${w.netCommissionOffset.toFixed(0)}€ comisiones = <strong>${w.netObligationToBoss.toFixed(2)}€ netos</strong>
+                          </div>
+                        </div>
+                      ` : ''}
+
+                      <div class="flex items-center justify-between text-[11px] text-slate-300 tabular-nums">
+                        <span>Vapers regalo (${w.unitsTowardNextFreeVaper}/${w.rewardEveryNUnits} · ${w.rewardFreeUnits} gratis/${w.rewardEveryNUnits} uds):</span>
+                        <strong class="text-emerald-300">${w.pendingFreeVapers} pend. (${w.deliveredFreeVapers} entr.)</strong>
+                      </div>
+                      <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div class="h-full bg-emerald-400 rounded-full" style="width: ${Math.min(100, w.nextFreeVaperProgressPct)}%"></div>
+                      </div>
+
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
+                        <button 
+                          type="button"
+                          onclick="window.app.openDeliverRewardModal('${this._escJsAttr(w.warehouseId)}', ${Math.max(1, w.pendingFreeVapers)})"
+                          class="btn-pressable py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/35 text-emerald-200 text-xs font-semibold"
+                        >🎁 Entregar regalo (${w.pendingFreeVapers})</button>
+                        <button 
+                          type="button"
+                          onclick="window.app.openWarehouseModal('${this._escJsAttr(w.warehouseId)}')"
+                          class="btn-pressable py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-medium"
+                        >⚙️ Comisiones (${w.commissionPerUnit.toFixed(2)}€/ud · ${w.rewardFreeUnits}/${w.rewardEveryNUnits})</button>
+                      </div>
+                    </div>
+
+                    ${historyList.length > 0 ? `
+                      <details class="ios-accordion mb-0">
+                        <summary>
+                          <span>Historial de entregas y comisiones (${historyList.length})</span>
+                        </summary>
+                        <div class="ios-accordion-body space-y-1.5 max-h-48 overflow-y-auto">
+                          ${historyList.map(st => {
+                            const dt = new Date(st.timestamp);
+                            const dateTxt = `${dt.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                            const isReward = st.type === 'reward_vaper';
+                            const isCommPayout = st.type === 'commission_payout';
+                            const label = isReward
+                              ? `🎁 ${st.count} regalo${st.count === 1 ? '' : 's'}${st.productName ? ` (${this._escapeHtml(st.productName)})` : ''}`
+                              : isCommPayout
+                                ? `🏆 Comisión pagada: ${Number(st.amount || 0).toFixed(2)}€ (${this._escapeHtml(st.productName || 'Efectivo')})`
+                                : `💶 Entrega: ${Number(st.amount || 0).toFixed(2)}€ (${this._escapeHtml(st.productName || 'Efectivo')})`;
+                            return `
+                              <div class="flex items-center justify-between gap-2 bg-white/5 px-2.5 py-2 rounded-xl border border-white/10 text-[11px]">
+                                <div class="min-w-0">
+                                  <div class="font-semibold text-white truncate">${label}</div>
+                                  <div class="text-[10px] text-slate-400">${dateTxt}${st.notes ? ` · ${this._escapeHtml(st.notes)}` : ''}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onclick="window.app.revertWorkerSettlementAction('${this._escJsAttr(st.id)}')"
+                                  class="btn-pressable text-[10px] text-rose-400 hover:text-rose-300 underline flex-shrink-0"
+                                >Anular</button>
+                              </div>
+                            `;
+                          }).join('')}
+                        </div>
+                      </details>
+                    ` : ''}
                   </div>
-                </div>
-              </details>
-            `).join('')}
+                </details>
+              `;
+            }).join('')}
           </div>
         `}
 
         <!-- Resumen global de trabajadores y botón + Nuevo trabajador -->
-        <div class="flex items-center justify-between px-1 text-xs text-slate-400">
-          <span>Total pendiente: <strong class="text-white tabular-nums">${workerAccounts.totalPendingMoneyFromWorkers.toFixed(2)} €</strong> · <strong class="text-emerald-400">${workerAccounts.totalPendingFreeVapersAllWorkers} regalo(s)</strong></span>
+        <div class="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-400 tabular-nums">
+          <span>
+            Deuda líquida total: <strong class="text-white">${workerAccounts.totalPendingMoneyFromWorkers.toFixed(2)} €</strong>
+            · Stock en equipo: <strong class="text-indigo-300">${workerAccounts.totalStockUnitsWorkers} uds (${workerAccounts.totalStockRetailWorkers.toFixed(0)} €)</strong>
+          </span>
           <button 
             type="button"
             onclick="window.app.openWarehouseModal()"
@@ -4252,52 +4451,78 @@ class AppController {
   _buildDebtsAndReservationsSectionHtml(dr) {
     if (!dr) return '';
     const debtors = dr.debtorsByCustomer || [];
+    const settled = dr.settledCustomers || [];
     const reservations = dr.activeReservations || [];
 
     return `
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-        <!-- Control de Fiados / Deudas Pendientes -->
+        <!-- Control de Fiados / Cuenta Corriente de Clientes -->
         <div class="ios-card ios-card-glow-amber mb-0">
           <div class="flex items-center justify-between mb-2">
             <div>
               <h3 class="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                <span>⏳</span> Control de "Fiados" (Pendientes de Cobro)
+                <span>⏳</span> Cuentas de Clientes ("Fiados")
               </h3>
-              <span class="text-[10px] text-slate-300">${dr.pendingDebtUnits} uds entregadas pendientes de pago</span>
+              <span class="text-[10px] text-slate-300">Saldo vivo con abonos parciales · toca un cliente para ver su historial</span>
             </div>
-            <span class="badge badge-fiado text-xs font-black">${dr.totalPendingDebtAmount.toFixed(2)}€</span>
+            <span class="badge badge-fiado text-xs font-black tabular-nums">${dr.totalPendingDebtAmount.toFixed(2)}€</span>
           </div>
 
           ${debtors.length === 0 ? `
-            <div class="text-xs text-emerald-400 py-6 text-center font-semibold bg-slate-950/40 rounded-xl border border-slate-800/80">
-              ✅ No hay ninguna deuda ni venta fiada pendiente de cobro
+            <div class="text-xs text-emerald-400 py-5 text-center font-semibold bg-slate-950/40 rounded-xl border border-slate-800/80">
+              ✅ No hay ninguna deuda ni cuenta fiada pendiente de cobro
             </div>
           ` : `
-            <div class="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
               ${debtors.map(d => `
-                <div class="bg-slate-950/70 p-2.5 rounded-xl border border-amber-500/35">
-                  <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-xs font-black text-white">👤 ${this._escapeHtml(d.customerName)}</span>
-                    <span class="text-xs font-black text-amber-400">Debe: ${d.totalDebt.toFixed(2)}€ (${d.totalUnits} uds)</span>
+                <div
+                  onclick="window.app.openCustomerLedgerModal('${this._escJsAttr(d.customerName)}')"
+                  class="bg-slate-950/70 hover:bg-slate-900/90 p-3 rounded-xl border border-amber-500/35 cursor-pointer transition flex items-center justify-between gap-2"
+                >
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs font-black text-white truncate">👤 ${this._escapeHtml(d.customerName)}</span>
+                      <span class="text-[10px] text-slate-400">(${d.openSalesCount} ${d.openSalesCount === 1 ? 'cargo' : 'cargos'})</span>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-0.5 tabular-nums">
+                      Fiado: <strong class="text-slate-200">${d.totalCharged.toFixed(2)}€</strong>
+                      ${d.totalPaid > 0 ? ` · Abonado: <strong class="text-emerald-400">-${d.totalPaid.toFixed(2)}€</strong>` : ''}
+                    </div>
                   </div>
-                  <div class="space-y-1.5">
-                    ${d.sales.map(s => `
-                      <div class="flex items-center justify-between text-[11px] bg-slate-900/90 px-2.5 py-1.5 rounded-lg border border-slate-800">
-                        <div class="min-w-0 pr-2">
-                          <div class="font-semibold text-slate-200 truncate">${s.quantity}x ${this._escapeHtml(s.productName)} (${s.grossTotal.toFixed(2)}€)</div>
-                          <div class="text-[10px] text-slate-400">${this._escapeHtml(s.warehouseName)}${s.notes ? ` • 📝 ${this._escapeHtml(s.notes)}` : ''}</div>
-                        </div>
-                        <div class="flex items-center gap-1 flex-shrink-0">
-                          <button onclick="window.app.markPendingSalePaid('${s.id}', 'Efectivo')" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded text-[10px] font-bold">💵 Efec.</button>
-                          <button onclick="window.app.markPendingSalePaid('${s.id}', 'Tarjeta')" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded text-[10px] font-bold">💳 Tarj.</button>
-                        </div>
-                      </div>
-                    `).join('')}
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <div class="text-right tabular-nums">
+                      <div class="text-sm font-black text-amber-300">${d.liveBalance.toFixed(2)}€</div>
+                      <div class="text-[9.5px] text-slate-400">Pendiente</div>
+                    </div>
+                    <button
+                      type="button"
+                      onclick="event.stopPropagation(); window.app.openCustomerLedgerModal('${this._escJsAttr(d.customerName)}')"
+                      class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-lg text-[10px] font-bold"
+                    >+ Abono</button>
                   </div>
                 </div>
               `).join('')}
             </div>
           `}
+
+          ${settled.length > 0 ? `
+            <details class="ios-accordion mt-2.5 mb-0">
+              <summary>
+                <span>Clientes al día con historial (${settled.length})</span>
+              </summary>
+              <div class="ios-accordion-body space-y-1.5 max-h-40 overflow-y-auto">
+                ${settled.map(c => `
+                  <div
+                    onclick="window.app.openCustomerLedgerModal('${this._escJsAttr(c.customerName)}')"
+                    class="flex items-center justify-between text-[11px] bg-white/5 hover:bg-white/10 px-2.5 py-2 rounded-xl cursor-pointer transition"
+                  >
+                    <span class="font-semibold text-white truncate">👤 ${this._escapeHtml(c.customerName)}</span>
+                    <span class="text-emerald-400 font-semibold tabular-nums">0.00€ (${c.totalPaid.toFixed(0)}€ pagados) ›</span>
+                  </div>
+                `).join('')}
+              </div>
+            </details>
+          ` : ''}
         </div>
 
         <!-- Control de Reservas Activas -->
@@ -4707,30 +4932,63 @@ class AppController {
   }
 
   async openSettleCashModal(workerWarehouseId, pendingAmount = 0) {
-    const warehouse = await this.inventoryAgent.getWarehouse(workerWarehouseId);
+    const [warehouse, metrics] = await Promise.all([
+      this.inventoryAgent.getWarehouse(workerWarehouseId),
+      this.analyticsAgent.getDashboardMetrics('all', 'all', 'all')
+    ]);
     if (!warehouse) return;
 
     const modal = document.getElementById('workerActionModal');
     const body = document.getElementById('workerActionModalBody');
     if (!modal || !body) return;
 
-    const defaultVal = pendingAmount > 0 ? pendingAmount.toFixed(2) : '';
+    const acct = (metrics.workerAccounts?.warehouses || []).find(w => w.warehouseId === workerWarehouseId);
+    const livePending = acct ? acct.pendingMoneyToDeliver : pendingAmount;
+    const defaultVal = livePending > 0 ? livePending.toFixed(2) : '';
 
     body.innerHTML = `
       <div class="flex items-center justify-between mb-3">
         <div>
-          <h3 class="text-base font-bold text-white">💶 Recibir / Liquidar Dinero de Trabajador</h3>
+          <h3 class="text-base font-bold text-white">💶 Recibir / Liquidar Dinero</h3>
           <span class="text-xs text-slate-400">${this._escapeHtml(warehouse.name)} (${this._escapeHtml(warehouse.workerName || 'Trabajador')})</span>
         </div>
         <button onclick="document.getElementById('workerActionModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">✕</button>
       </div>
 
-      <form onsubmit="event.preventDefault(); window.app.confirmSettleWorkerCash('${warehouse.id}');" class="space-y-3">
-        <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-xs flex justify-between">
-          <span class="text-slate-400">Pendiente actual de entregarte:</span>
-          <strong class="text-amber-400">${pendingAmount.toFixed(2)}€</strong>
+      ${acct ? `
+        <div class="bg-slate-900/90 p-3 rounded-2xl border border-white/10 text-xs space-y-1.5 mb-3 tabular-nums">
+          <div class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Cruce de Caja (Consignación)</div>
+          <div class="flex justify-between">
+            <span class="text-slate-300">Ventas cobradas por ${this._escapeHtml(warehouse.workerName || warehouse.name)}:</span>
+            <strong class="text-white">${acct.totalCollectedPaid.toFixed(2)} €</strong>
+          </div>
+          ${acct.netCommissionOffset > 0 ? `
+            <div class="flex justify-between text-indigo-300">
+              <span>− Comisiones (${acct.globalPaidUnitsSold} uds × ${acct.commissionPerUnit.toFixed(2)}€):</span>
+              <strong>-${acct.netCommissionOffset.toFixed(2)} €</strong>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-300">= Neto que te corresponde:</span>
+              <strong class="text-white">${acct.netObligationToBoss.toFixed(2)} €</strong>
+            </div>
+          ` : ''}
+          <div class="flex justify-between">
+            <span class="text-slate-300">− Entregas anteriores ya recibidas:</span>
+            <strong class="text-emerald-400">-${acct.cashSettledAmount.toFixed(2)} €</strong>
+          </div>
+          <div class="flex justify-between pt-1.5 border-t border-white/10 text-sm">
+            <span class="font-bold text-white">Te debe hoy:</span>
+            <strong class="${livePending > 0 ? 'text-amber-300' : 'text-emerald-400'}">${livePending.toFixed(2)} €</strong>
+          </div>
         </div>
+      ` : `
+        <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-xs flex justify-between mb-3">
+          <span class="text-slate-400">Pendiente actual de entregarte:</span>
+          <strong class="text-amber-400">${livePending.toFixed(2)}€</strong>
+        </div>
+      `}
 
+      <form onsubmit="event.preventDefault(); window.app.confirmSettleWorkerCash('${this._escJsAttr(warehouse.id)}');" class="space-y-3">
         <div>
           <label class="text-xs text-slate-300 font-bold block mb-1">Importe que te entrega ahora (€) *</label>
           <input 
@@ -4742,6 +5000,20 @@ class AppController {
             placeholder="0.00" 
             class="w-full bg-slate-800 text-white font-black text-center py-2.5 rounded-xl border border-slate-700 text-lg focus:outline-none focus:border-emerald-500"
           />
+          ${livePending > 0 ? `
+            <div class="flex gap-2 mt-1.5">
+              <button type="button" onclick="document.getElementById('settleModalAmount').value='${livePending.toFixed(2)}'" class="flex-1 py-1 rounded-lg bg-white/10 text-xs text-slate-200 font-semibold">Liquidar todo (${livePending.toFixed(2)}€)</button>
+              <button type="button" onclick="document.getElementById('settleModalAmount').value='${(livePending / 2).toFixed(2)}'" class="flex-1 py-1 rounded-lg bg-white/10 text-xs text-slate-200 font-semibold">Mitad (${(livePending / 2).toFixed(2)}€)</button>
+            </div>
+          ` : ''}
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-300 font-bold block mb-1">Método de entrega</label>
+          <select id="settleModalMethod" class="w-full bg-slate-800 text-white px-3 py-2.5 rounded-xl border border-slate-700 text-xs font-semibold">
+            <option value="Efectivo">💵 Efectivo en mano</option>
+            <option value="Tarjeta">💳 Bizum / Transferencia / Tarjeta</option>
+          </select>
         </div>
 
         <div>
@@ -4765,12 +5037,14 @@ class AppController {
 
   async confirmSettleWorkerCash(workerWarehouseId) {
     const amount = parseFloat(document.getElementById('settleModalAmount')?.value);
+    const paymentMethod = document.getElementById('settleModalMethod')?.value || 'Efectivo';
     const notes = document.getElementById('settleModalNotes')?.value || '';
 
     try {
       const res = await this.inventoryAgent.settleWorkerCash({
         workerWarehouseId,
         amount,
+        paymentMethod,
         notes
       });
       document.getElementById('workerActionModal')?.classList.remove('active');
@@ -4780,6 +5054,350 @@ class AppController {
       await this.renderCurrentTab();
     } catch (err) {
       alert(`Error: ${err.message}`);
+    }
+  }
+
+  async revertWorkerSettlementAction(settlementId) {
+    if (!confirm('¿Anular este movimiento de liquidación/entrega del trabajador? Se recalculará automáticamente su saldo.')) {
+      return;
+    }
+    try {
+      const res = await this.inventoryAgent.revertWorkerSettlement(settlementId);
+      this._playChime('revert');
+      this.showToast(res.message, '↩️');
+      this.scheduleCloudSnapshotPublish();
+      await this.renderCurrentTab();
+    } catch (err) {
+      alert(`Error anulando movimiento: ${err.message}`);
+    }
+  }
+
+  // =========================================================================
+  // CUENTA CORRIENTE DE CLIENTES (FIADOS CON ABONOS PARCIALES E HISTORIAL)
+  // =========================================================================
+  async openCustomerDebtorsModal() {
+    const modal = document.getElementById('customerLedgerModal');
+    const body = document.getElementById('customerLedgerModalBody');
+    if (!modal || !body) return;
+
+    const isWorker = this.authAgent.isWorker();
+    const assignedWh = this.authAgent.getAssignedWarehouseId();
+    const [allSales, allSettlements] = await Promise.all([
+      this.storageAgent.getAllSales(),
+      this.storageAgent.getAllSettlements()
+    ]);
+
+    const summary = this.analyticsAgent.computeCustomerAccounts(
+      allSales,
+      allSettlements,
+      isWorker ? assignedWh : 'all'
+    );
+    const debtors = summary.debtorsByCustomer || [];
+    const settled = summary.settledCustomers || [];
+
+    body.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h3 class="text-lg font-bold text-white">⏳ Cuentas de Fiados</h3>
+          <span class="text-xs text-slate-400">Saldo total pendiente: <strong class="text-amber-300 tabular-nums">${summary.totalPendingDebtAmount.toFixed(2)} €</strong></span>
+        </div>
+        <button onclick="document.getElementById('customerLedgerModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-white/10 text-slate-300 hover:text-white flex items-center justify-center font-semibold">✕</button>
+      </div>
+
+      ${debtors.length === 0 ? `
+        <div class="ios-glass-card p-6 text-center text-xs text-emerald-400 font-semibold mb-3">
+          ✅ No hay ninguna deuda fiada pendiente de cobro.
+        </div>
+      ` : `
+        <div class="ios-grouped-list mb-3">
+          ${debtors.map(c => `
+            <div
+              onclick="window.app.openCustomerLedgerModal('${this._escJsAttr(c.customerName)}')"
+              class="ios-grouped-row px-4 py-3 flex items-center justify-between gap-2 cursor-pointer hover:bg-white/5 transition"
+            >
+              <div class="min-w-0">
+                <div class="text-sm font-semibold text-white truncate">👤 ${this._escapeHtml(c.customerName)}</div>
+                <div class="text-xs text-slate-400 tabular-nums">
+                  Fiado: ${c.totalCharged.toFixed(2)}€${c.totalPaid > 0 ? ` · Abonado: -${c.totalPaid.toFixed(2)}€` : ''}
+                </div>
+              </div>
+              <div class="text-right flex-shrink-0 tabular-nums">
+                <div class="text-sm font-bold text-amber-300">${c.liveBalance.toFixed(2)} €</div>
+                <div class="text-[11px] text-emerald-400 font-medium">+ Abonar ›</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+
+      ${settled.length > 0 ? `
+        <details class="ios-accordion mb-0">
+          <summary>
+            <span>Clientes al día con historial (${settled.length})</span>
+          </summary>
+          <div class="ios-accordion-body space-y-1.5 max-h-48 overflow-y-auto">
+            ${settled.map(c => `
+              <div
+                onclick="window.app.openCustomerLedgerModal('${this._escJsAttr(c.customerName)}')"
+                class="flex items-center justify-between text-xs bg-white/5 hover:bg-white/10 px-3 py-2 rounded-xl cursor-pointer transition"
+              >
+                <span class="font-medium text-white truncate">👤 ${this._escapeHtml(c.customerName)}</span>
+                <span class="text-emerald-400 font-semibold tabular-nums">0.00€ (${c.totalPaid.toFixed(0)}€ pagados) ›</span>
+              </div>
+            `).join('')}
+          </div>
+        </details>
+      ` : ''}
+    `;
+
+    modal.classList.add('active');
+    this._playChime('tap');
+  }
+
+  async openCustomerLedgerModal(customerName) {
+    const cleanName = String(customerName || '').trim();
+    if (!cleanName) return;
+
+    const modal = document.getElementById('customerLedgerModal');
+    const body = document.getElementById('customerLedgerModalBody');
+    if (!modal || !body) return;
+
+    const isWorker = this.authAgent.isWorker();
+    const assignedWh = this.authAgent.getAssignedWarehouseId();
+    const [allSales, allSettlements, warehouses] = await Promise.all([
+      this.storageAgent.getAllSales(),
+      this.storageAgent.getAllSettlements(),
+      this.inventoryAgent.getWarehouses()
+    ]);
+
+    const summary = this.analyticsAgent.computeCustomerAccounts(
+      allSales,
+      allSettlements,
+      isWorker ? assignedWh : 'all'
+    );
+    const key = this.salesAgent._normalizeCustomerKey(cleanName);
+    const account = (summary.allCustomerAccounts || []).find(c => c.customerKey === key) || {
+      customerName: cleanName,
+      totalCharged: 0,
+      totalPaid: 0,
+      liveBalance: 0,
+      primaryWarehouseId: isWorker && assignedWh ? assignedWh : MAIN_WAREHOUSE_ID,
+      movementsDesc: []
+    };
+
+    const defaultReceiveWh = isWorker && assignedWh
+      ? assignedWh
+      : (account.primaryWarehouseId || MAIN_WAREHOUSE_ID);
+
+    body.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onclick="window.app.openCustomerDebtorsModal()"
+            class="w-8 h-8 rounded-full bg-white/10 text-slate-300 hover:text-white flex items-center justify-center text-sm font-bold flex-shrink-0"
+            title="Volver a lista de clientes"
+          >‹</button>
+          <div class="min-w-0">
+            <h3 class="text-lg font-bold text-white truncate">👤 ${this._escapeHtml(account.customerName)}</h3>
+            <span class="text-xs text-slate-400">Cuenta corriente de fiados y abonos</span>
+          </div>
+        </div>
+        <button onclick="document.getElementById('customerLedgerModal').classList.remove('active')" class="w-8 h-8 rounded-full bg-white/10 text-slate-300 hover:text-white flex items-center justify-center font-semibold flex-shrink-0">✕</button>
+      </div>
+
+      <!-- Saldo Vivo + Resumen -->
+      <div class="grid grid-cols-3 gap-2 text-center mb-3 tabular-nums">
+        <div class="bg-white/5 p-2.5 rounded-2xl border border-white/10">
+          <div class="text-[10px] text-slate-400 uppercase">Total Fiado</div>
+          <div class="text-sm font-bold text-white mt-0.5">+${account.totalCharged.toFixed(2)} €</div>
+        </div>
+        <div class="bg-white/5 p-2.5 rounded-2xl border border-white/10">
+          <div class="text-[10px] text-emerald-300 uppercase">Abonado</div>
+          <div class="text-sm font-bold text-emerald-400 mt-0.5">-${account.totalPaid.toFixed(2)} €</div>
+        </div>
+        <div class="${account.liveBalance > 0 ? 'bg-amber-500/15 border-amber-400/35' : 'bg-emerald-500/15 border-emerald-400/35'} p-2.5 rounded-2xl border">
+          <div class="text-[10px] ${account.liveBalance > 0 ? 'text-amber-300' : 'text-emerald-300'} uppercase font-bold">Saldo Vivo</div>
+          <div class="text-base font-black ${account.liveBalance > 0 ? 'text-amber-300' : 'text-emerald-400'} mt-0.5">${account.liveBalance.toFixed(2)} €</div>
+        </div>
+      </div>
+
+      <!-- Formulario de Abono Parcial o Total -->
+      <form onsubmit="event.preventDefault(); window.app.confirmCustomerPayment('${this._escJsAttr(account.customerName)}');" class="ios-glass-card p-3.5 space-y-2.5 mb-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-white">💶 Registrar Abono / Pago</span>
+          ${account.liveBalance > 0 ? `
+            <div class="flex gap-1.5">
+              <button type="button" onclick="document.getElementById('custPayAmountInput').value='${account.liveBalance.toFixed(2)}'" class="px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-slate-200 font-semibold">Liquidar (${account.liveBalance.toFixed(2)}€)</button>
+              <button type="button" onclick="document.getElementById('custPayAmountInput').value='${(account.liveBalance / 2).toFixed(2)}'" class="px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-slate-200 font-semibold">Mitad</button>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[10px] text-slate-400 block mb-1">Importe entregado (€) *</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              id="custPayAmountInput"
+              value="${account.liveBalance > 0 ? account.liveBalance.toFixed(2) : ''}"
+              placeholder="Ej: 30.00"
+              class="w-full bg-slate-900 text-white font-black text-center py-2 rounded-xl border border-white/15 text-base focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-400 block mb-1">Método de pago</label>
+            <select id="custPayMethodSelect" class="w-full bg-slate-900 text-white px-2.5 py-2.5 rounded-xl border border-white/15 text-xs font-semibold">
+              <option value="Efectivo">💵 Efectivo</option>
+              <option value="Tarjeta">💳 Tarjeta / Bizum</option>
+            </select>
+          </div>
+        </div>
+
+        ${isWorker ? `
+          <input type="hidden" id="custPayWarehouseSelect" value="${this._escapeHtml(defaultReceiveWh)}" />
+        ` : `
+          <div>
+            <label class="text-[10px] text-slate-400 block mb-1">Almacén / Caja que recibe el cobro</label>
+            <select id="custPayWarehouseSelect" class="w-full bg-slate-900 text-white px-2.5 py-2 rounded-xl border border-white/15 text-xs font-semibold">
+              ${warehouses.map(wh => `
+                <option value="${this._escapeHtml(wh.id)}" ${wh.id === defaultReceiveWh ? 'selected' : ''}>
+                  ${wh.icon || '🏠'} ${this._escapeHtml(wh.name)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        `}
+
+        <div class="flex gap-2">
+          <input
+            type="text"
+            id="custPayNotesInput"
+            placeholder="📝 Nota opcional (ej. Abono parcial)..."
+            class="flex-1 bg-slate-900 text-white px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none focus:border-white/30"
+          />
+          <button type="submit" class="btn-pressable px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs whitespace-nowrap">
+            Registrar Abono
+          </button>
+        </div>
+      </form>
+
+      <!-- Historial Cronológico de Movimientos -->
+      <div>
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2 px-1">
+          📜 Historial de Movimientos (${(account.movementsDesc || []).length})
+        </div>
+        ${(account.movementsDesc || []).length === 0 ? `
+          <div class="ios-glass-card p-4 text-center text-xs text-slate-400">
+            No hay movimientos registrados para este cliente.
+          </div>
+        ` : `
+          <div class="ios-grouped-list max-h-64 overflow-y-auto">
+            ${(account.movementsDesc || []).map(m => {
+              const dt = new Date(m.timestamp);
+              const dateTxt = `${dt.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' })} · ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+              const isPayment = m.kind === 'payment';
+              return `
+                <div class="ios-grouped-row px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-semibold text-white truncate">
+                        ${isPayment
+                          ? `💳 Abono (${this._escapeHtml(m.paymentMethod)})`
+                          : `📦 ${m.quantity}x ${this._escapeHtml(m.productName)}`
+                        }
+                      </span>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-0.5">
+                      ${dateTxt} · ${this._escapeHtml(m.warehouseName)}
+                      ${m.notes ? ` · ${this._escapeHtml(m.notes)}` : ''}
+                    </div>
+                  </div>
+
+                  <div class="text-right flex-shrink-0 tabular-nums">
+                    <div class="font-bold ${isPayment ? 'text-emerald-400' : 'text-amber-300'}">
+                      ${isPayment ? `-${m.amount.toFixed(2)} €` : `+${m.amount.toFixed(2)} €`}
+                    </div>
+                    <div class="text-[10px] text-slate-400 flex items-center justify-end gap-2">
+                      <span>Saldo: ${Math.max(0, m.runningBalance).toFixed(2)}€</span>
+                      ${isPayment ? `
+                        <button
+                          type="button"
+                          onclick="window.app.revertCustomerPaymentAction('${this._escJsAttr(m.id)}', '${this._escJsAttr(account.customerName)}')"
+                          class="text-rose-400 hover:text-rose-300 underline"
+                        >Anular</button>
+                      ` : ''}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+    `;
+
+    modal.classList.add('active');
+    this._playChime('tap');
+  }
+
+  async confirmCustomerPayment(customerName) {
+    return this._runLocked(`custPay_${customerName}`, async () => {
+      const amount = parseFloat(document.getElementById('custPayAmountInput')?.value);
+      const paymentMethod = document.getElementById('custPayMethodSelect')?.value || 'Efectivo';
+      const isWorker = this.authAgent.isWorker();
+      const assignedWh = this.authAgent.getAssignedWarehouseId();
+      const warehouseId = isWorker && assignedWh
+        ? assignedWh
+        : (document.getElementById('custPayWarehouseSelect')?.value || MAIN_WAREHOUSE_ID);
+      const notes = document.getElementById('custPayNotesInput')?.value || '';
+
+      try {
+        const res = await this.salesAgent.recordCustomerPayment({
+          customerName,
+          amount,
+          paymentMethod,
+          warehouseId,
+          notes
+        });
+        this._playChime('success');
+        this.showToast(res.message, '💶');
+        const wh = await this.inventoryAgent.getWarehouse(warehouseId);
+        this.notificationsAgent.notifyCustomerPayment({
+          customerName,
+          amount: res.settlement.amount,
+          paymentMethod,
+          remainingBalance: res.summary.liveBalance,
+          warehouse: wh,
+          isWorkerSession: isWorker
+        }).catch(() => {});
+        this.scheduleCloudSnapshotPublish();
+        await this.openCustomerLedgerModal(customerName);
+        await this.renderCurrentTab();
+        await this.updateHeaderQuickStats();
+      } catch (err) {
+        alert(`No se pudo registrar el abono: ${err.message}`);
+      }
+    });
+  }
+
+  async revertCustomerPaymentAction(settlementId, customerName) {
+    if (!confirm('¿Anular este abono? El saldo pendiente del cliente volverá a recalcularse.')) {
+      return;
+    }
+    try {
+      const res = await this.salesAgent.deleteCustomerPayment(settlementId);
+      this._playChime('revert');
+      this.showToast(res.message, '↩️');
+      this.scheduleCloudSnapshotPublish();
+      await this.openCustomerLedgerModal(customerName || res.summary?.customerName);
+      await this.renderCurrentTab();
+      await this.updateHeaderQuickStats();
+    } catch (err) {
+      alert(`Error anulando abono: ${err.message}`);
     }
   }
 
@@ -5521,9 +6139,8 @@ class AppController {
     const data = await this.analyticsAgent.getDashboardMetrics(this.analyticsTimeframe, assignedWh);
     const workerAcct = (data.workerAccounts?.warehouses || []).find(w => w.warehouseId === assignedWh);
     const myWarehouse = (data.warehouseBreakdown || []).find(w => w.warehouseId === assignedWh);
-    const pendingDebts = (data.debtsAndReservations?.pendingSales || []).filter(
-      s => (s.warehouseId || MAIN_WAREHOUSE_ID) === assignedWh
-    );
+    const pendingDebtors = data.debtsAndReservations?.debtorsByCustomer || [];
+    const totalPendingDebt = data.debtsAndReservations?.totalPendingDebtAmount || 0;
 
     const timeframeLabels = {
       today: 'Hoy',
@@ -5549,26 +6166,48 @@ class AppController {
         </div>
 
         <div class="ios-card ios-card-glow-indigo mb-0 p-3.5">
-          <div class="text-[11px] text-indigo-300 font-bold mb-1">📦 Tu Stock Actual</div>
+          <div class="text-[11px] text-indigo-300 font-bold mb-1">📦 Tu Stock (Consignación)</div>
           <div class="text-2xl font-black text-white tabular-nums">${myWarehouse ? myWarehouse.currentStockUnits : 0} uds</div>
-          <div class="text-[10px] text-slate-400 mt-1">Disponibles en tu almacén</div>
+          <div class="text-[10px] text-slate-400 mt-1">Valor PVP: ${(myWarehouse ? myWarehouse.stockRetailValuation : 0).toFixed(2)}€</div>
         </div>
       </div>
 
       ${workerAcct ? `
-        <!-- Progreso de Vapers de Regalo y Liquidación -->
-        <div class="ios-card ios-card-glow-emerald mb-4">
-          <div class="flex items-center justify-between mb-2">
+        <!-- 3 Indicadores de Consignación para el Trabajador -->
+        <div class="ios-card ios-card-glow-emerald mb-4 space-y-2.5">
+          <div class="flex items-center justify-between">
             <h3 class="text-sm font-black text-white flex items-center gap-1.5">
-              <span>🎁</span> Tus Vapers de Regalo (Comisión)
+              <span>💼</span> Tu Cuenta y Comisiones
             </h3>
-            <span class="badge badge-ok-stock text-[10px]">${workerAcct.rewardFreeUnits} gratis cada ${workerAcct.rewardEveryNUnits} uds</span>
+            <span class="badge badge-ok-stock text-[10px]">
+              ${workerAcct.commissionPerUnit > 0 ? `${workerAcct.commissionPerUnit.toFixed(2)}€/ud · ` : ''}${workerAcct.rewardFreeUnits} regalo/${workerAcct.rewardEveryNUnits} uds
+            </span>
           </div>
 
-          <div class="bg-emerald-950/35 p-3 rounded-xl border border-emerald-500/30 mb-3">
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60 tabular-nums space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-300">💶 1. Dinero por entregar al Jefe:</span>
+              <span class="text-lg font-black ${workerAcct.pendingMoneyToDeliver > 0 ? 'text-amber-400' : 'text-emerald-400'}">
+                ${workerAcct.pendingMoneyToDeliver.toFixed(2)}€
+              </span>
+            </div>
+            <div class="text-[10px] text-slate-400 flex flex-wrap justify-between gap-2">
+              <span>Cobrado: <strong class="text-white">${workerAcct.totalCollectedPaid.toFixed(2)}€</strong> (💵 ${workerAcct.collectedCash.toFixed(0)}€ / 💳 ${workerAcct.collectedCard.toFixed(0)}€)</span>
+              <span>Entregado ya: <strong class="text-emerald-400">${workerAcct.cashSettledAmount.toFixed(2)}€</strong></span>
+            </div>
+            ${workerAcct.netCommissionOffset > 0 ? `
+              <div class="text-[10px] text-indigo-300">
+                − Tus comisiones descontadas: <strong>-${workerAcct.netCommissionOffset.toFixed(2)}€</strong> · Neto a entregar: <strong>${workerAcct.netObligationToBoss.toFixed(2)}€</strong>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="bg-emerald-950/35 p-3 rounded-xl border border-emerald-500/30">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-bold text-emerald-200">Vapers gratis disponibles para ti:</span>
-              <span class="text-lg font-black text-emerald-400">${workerAcct.pendingFreeVapers} ${workerAcct.pendingFreeVapers === 1 ? 'vaper' : 'vapers'}</span>
+              <span class="text-xs font-bold text-emerald-200">🎁 Tus comisiones y regalos:</span>
+              <span class="text-sm font-black text-emerald-400 tabular-nums">
+                ${workerAcct.commissionPerUnit > 0 ? `${workerAcct.earnedCommissionEuro.toFixed(2)}€ · ` : ''}${workerAcct.pendingFreeVapers} ${workerAcct.pendingFreeVapers === 1 ? 'vaper' : 'vapers'}
+              </span>
             </div>
             <div class="text-[11px] text-slate-300 mb-2 flex justify-between">
               <span>Llevas <strong>${workerAcct.unitsTowardNextFreeVaper}/${workerAcct.rewardEveryNUnits}</strong> para el próximo</span>
@@ -5579,39 +6218,35 @@ class AppController {
             </div>
             <div class="text-[10px] text-slate-400 mt-2 flex justify-between">
               <span>Total vendidos histórico: <strong class="text-white">${workerAcct.allTimeUnitsSold} uds</strong></span>
-              <span>Ya recibidos: <strong class="text-emerald-300">${workerAcct.deliveredFreeVapers}</strong></span>
-            </div>
-          </div>
-
-          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-bold text-slate-300">💶 Dinero por entregar al Jefe:</span>
-              <span class="text-lg font-black ${workerAcct.pendingMoneyToDeliver > 0 ? 'text-amber-400' : 'text-emerald-400'} tabular-nums">
-                ${workerAcct.pendingMoneyToDeliver.toFixed(2)}€
-              </span>
-            </div>
-            <div class="text-[10px] text-slate-400 flex flex-wrap justify-between gap-2">
-              <span>Cobrado total: <strong class="text-white">${workerAcct.totalCollectedPaid.toFixed(2)}€</strong> (💵 ${workerAcct.collectedCash.toFixed(0)}€ / 💳 ${workerAcct.collectedCard.toFixed(0)}€)</span>
-              <span>Entregado ya: <strong class="text-emerald-400">${workerAcct.cashSettledAmount.toFixed(2)}€</strong></span>
+              <span>Regalos recibidos: <strong class="text-emerald-300">${workerAcct.deliveredFreeVapers}</strong></span>
             </div>
           </div>
         </div>
       ` : ''}
 
-      ${pendingDebts.length > 0 ? `
+      ${pendingDebtors.length > 0 ? `
         <div class="ios-card ios-card-glow-amber mb-4">
-          <h3 class="text-xs font-black uppercase tracking-wider text-amber-300 mb-2">⏳ Tus Fiados Pendientes de Cobro (${pendingDebts.length})</h3>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-black uppercase tracking-wider text-amber-300">⏳ Tus Fiados Pendientes (${totalPendingDebt.toFixed(2)}€)</h3>
+            <button onclick="window.app.openCustomerDebtorsModal()" class="text-[11px] text-emerald-300 font-semibold underline">Ver todos ›</button>
+          </div>
           <div class="space-y-2">
-            ${pendingDebts.map(s => `
-              <div class="bg-slate-900/85 p-2.5 rounded-xl border border-amber-500/35 flex items-center justify-between gap-2 text-xs">
+            ${pendingDebtors.map(c => `
+              <div
+                onclick="window.app.openCustomerLedgerModal('${this._escJsAttr(c.customerName)}')"
+                class="bg-slate-900/85 p-2.5 rounded-xl border border-amber-500/35 flex items-center justify-between gap-2 text-xs cursor-pointer"
+              >
                 <div class="min-w-0">
-                  <div class="font-bold text-white truncate">👤 ${this._escapeHtml(s.buyerName || 'Cliente')} • ${s.quantity}x ${this._escapeHtml(s.productName)}</div>
-                  <div class="text-[10px] text-amber-300 font-bold">${s.grossTotal.toFixed(2)}€ pendiente</div>
+                  <div class="font-bold text-white truncate">👤 ${this._escapeHtml(c.customerName)}</div>
+                  <div class="text-[10px] text-amber-300 font-bold tabular-nums">
+                    Debe: ${c.liveBalance.toFixed(2)}€ ${c.totalPaid > 0 ? `(Abonado -${c.totalPaid.toFixed(2)}€)` : ''}
+                  </div>
                 </div>
-                <div class="flex gap-1">
-                  <button onclick="window.app.markPendingSalePaid('${s.id}', 'Efectivo')" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💵 Efec.</button>
-                  <button onclick="window.app.markPendingSalePaid('${s.id}', 'Tarjeta')" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💳 Tarj.</button>
-                </div>
+                <button
+                  type="button"
+                  onclick="event.stopPropagation(); window.app.openCustomerLedgerModal('${this._escJsAttr(c.customerName)}')"
+                  class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-lg text-[10px] font-bold"
+                >+ Abono</button>
               </div>
             `).join('')}
           </div>
@@ -6131,6 +6766,7 @@ class AppController {
       this.showToast('Modo Jefe Activado (Acceso Total)', '👑');
     }
 
+    await this.notificationsAgent.syncWithCloudConfig({ isBoss: this.authAgent.isBoss() }).catch(() => {});
     this._playChime('success');
     this.applyRoleUI();
     await this.switchTab('sales');
@@ -6259,7 +6895,7 @@ class AppController {
       ...(notifyWorkerSales !== undefined ? { notifyWorkerSales } : {}),
       ...(notifyReservations !== undefined ? { notifyReservations } : {}),
       ...(notifyBossSales !== undefined ? { notifyBossSales } : {})
-    });
+    }, { syncToCloud: this.authAgent.isBoss() });
 
     const badge = document.getElementById('ntfyStatusBadge');
     if (badge) {

@@ -10,6 +10,7 @@
  */
 
 const STORAGE_KEY_NTFY = 'gv_ntfy_settings';
+const NTFY_CONFIG_KEY = 'ntfy_config';
 
 export class AgentNotifications {
   constructor(storageAgent = null) {
@@ -114,9 +115,9 @@ export class AgentNotifications {
   }
 
   /**
-   * Actualiza y guarda la configuración en localStorage ('gv_ntfy_settings').
+   * Actualiza y guarda la configuración en localStorage ('gv_ntfy_settings') y opcionalmente en Supabase ('ntfy_config').
    */
-  saveSettings(newSettings = {}) {
+  saveSettings(newSettings = {}, { syncToCloud = false } = {}) {
     const current = this.getSettings();
     const cleanTopic = newSettings.topic !== undefined
       ? String(newSettings.topic).trim().replace(/[^a-zA-Z0-9_-]/g, '')
@@ -151,14 +152,54 @@ export class AgentNotifications {
       console.warn('AgentNotifications: Error al guardar ajustes en localStorage:', err);
     }
 
+    if (syncToCloud && this.storage && typeof this.storage.setConfig === 'function') {
+      this.storage.setConfig(NTFY_CONFIG_KEY, updated).catch(() => {});
+    }
+
+    return this.getSettings();
+  }
+
+  /**
+   * Sincroniza la configuración de notificaciones con Supabase (`app_config['ntfy_config']`).
+   * Si existe en la nube, todos los dispositivos adoptan ese canal; si aún no existe y es el Jefe,
+   * sube su configuración actual a la nube.
+   */
+  async syncWithCloudConfig({ isBoss = false } = {}) {
+    if (!this.storage || typeof this.storage.getConfig !== 'function') {
+      return this.getSettings();
+    }
+
+    try {
+      const cloudCfg = await this.storage.getConfig(NTFY_CONFIG_KEY, null);
+      if (cloudCfg && cloudCfg.topic && String(cloudCfg.topic).trim()) {
+        return this.saveSettings(cloudCfg, { syncToCloud: false });
+      }
+
+      if (isBoss && this.settings && this.settings.topic) {
+        await this.storage.setConfig(NTFY_CONFIG_KEY, this.getSettings());
+      }
+    } catch (err) {
+      console.warn('AgentNotifications: Error sincronizando ntfy_config:', err);
+    }
+
     return this.getSettings();
   }
 
   /**
    * Publica un mensaje push en ntfy.sh enviando un POST JSON al endpoint raíz.
-   * Usar JSON en el cuerpo evita errores ISO-8859-1 con emojis y tildes en Safari/iOS.
+   * Refresca antes desde `ntfy_config` en Supabase (si existe) para garantizar el canal del Jefe
+   * y usa `keepalive: true` para no perder envíos al minimizar Safari en iOS.
    */
   async _postToNtfy({ title, message, priority = 4, tags = ['iphone'] }) {
+    if (this.storage && typeof this.storage.getConfig === 'function') {
+      try {
+        const cloudCfg = await this.storage.getConfig(NTFY_CONFIG_KEY, null);
+        if (cloudCfg && cloudCfg.topic && String(cloudCfg.topic).trim()) {
+          this.saveSettings(cloudCfg, { syncToCloud: false });
+        }
+      } catch (_) {}
+    }
+
     const settings = this.getSettings();
     if (!settings.topic) {
       return { sent: false, reason: 'missing_topic' };
@@ -176,6 +217,7 @@ export class AgentNotifications {
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
+        keepalive: true,
         headers: {
           'Content-Type': 'application/json; charset=utf-8'
         },
@@ -214,8 +256,19 @@ export class AgentNotifications {
     remainingStock = 0,
     workerPendingFreeVapers = 0,
     workerProgressText = '',
+    workerEarnedCommissionEuro = 0,
+    workerPendingMoney = null,
     isWorkerSession = false
   } = {}) {
+    if (this.storage && typeof this.storage.getConfig === 'function') {
+      try {
+        const cloudCfg = await this.storage.getConfig(NTFY_CONFIG_KEY, null);
+        if (cloudCfg && cloudCfg.topic && String(cloudCfg.topic).trim()) {
+          this.saveSettings(cloudCfg, { syncToCloud: false });
+        }
+      } catch (_) {}
+    }
+
     const settings = this.getSettings();
     if (!settings.enabled || !settings.topic || !sale) {
       return { sent: false };
@@ -255,6 +308,12 @@ export class AgentNotifications {
         `🎁 Comisión trabajador: ${workerProgressText} (Vapers regalo acumulados: ${workerPendingFreeVapers})`
       );
     }
+    if (workerEarnedCommissionEuro > 0 || (workerPendingMoney !== null && workerPendingMoney !== undefined)) {
+      const parts = [];
+      if (workerEarnedCommissionEuro > 0) parts.push(`Comisión acum.: ${Number(workerEarnedCommissionEuro).toFixed(2)}€`);
+      if (workerPendingMoney !== null && workerPendingMoney !== undefined) parts.push(`Pendiente entregar: ${Number(workerPendingMoney).toFixed(2)}€`);
+      lines.push(`💼 Consignación: ${parts.join(' · ')}`);
+    }
 
     const message = lines.join('\n');
     const tags = ['moneybag', 'package'];
@@ -267,6 +326,52 @@ export class AgentNotifications {
       message,
       priority: 4,
       tags
+    });
+  }
+
+  /**
+   * Envía una notificación push al iPhone cuando se registra un abono parcial o total de un cliente fiado.
+   */
+  async notifyCustomerPayment({
+    customerName,
+    amount = 0,
+    paymentMethod = 'Efectivo',
+    remainingBalance = 0,
+    warehouse = null,
+    isWorkerSession = false
+  } = {}) {
+    if (this.storage && typeof this.storage.getConfig === 'function') {
+      try {
+        const cloudCfg = await this.storage.getConfig(NTFY_CONFIG_KEY, null);
+        if (cloudCfg && cloudCfg.topic && String(cloudCfg.topic).trim()) {
+          this.saveSettings(cloudCfg, { syncToCloud: false });
+        }
+      } catch (_) {}
+    }
+
+    const settings = this.getSettings();
+    if (!settings.enabled || !settings.topic || !customerName) {
+      return { sent: false };
+    }
+    if (isWorkerSession && !settings.notifyWorkerSales) {
+      return { sent: false, reason: 'worker_notifications_disabled' };
+    }
+
+    const warehouseLabel = warehouse?.name || 'Almacén';
+    const workerLabel = warehouse?.workerName || warehouseLabel;
+    const title = `💶 Abono Fiado: ${customerName} (+${Number(amount).toFixed(2)}€)`;
+    const lines = [
+      `🧑 Cliente: ${customerName}`,
+      `💳 Pago recibido: ${Number(amount).toFixed(2)}€ (${paymentMethod})`,
+      `📍 Cobrado en: ${workerLabel}`,
+      `📊 Saldo pendiente restante: ${Number(remainingBalance).toFixed(2)}€`
+    ];
+
+    return this._postToNtfy({
+      title,
+      message: lines.join('\n'),
+      priority: 4,
+      tags: ['moneybag', 'white_check_mark']
     });
   }
 

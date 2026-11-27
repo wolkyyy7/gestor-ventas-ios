@@ -34,7 +34,7 @@
   </script>
 
   <!-- Estilos Mobile-First y Cupertino iOS 18 Glassmorphism -->
-  <link rel="stylesheet" href="css/app.css?v=5.4">
+  <link rel="stylesheet" href="css/app.css?v=5.5">
 </head>
 <body class="bg-slate-950 text-slate-100">
 
@@ -265,9 +265,11 @@
                 <input 
                   type="text" 
                   id="modalSaleBuyerInput" 
+                  list="existingCustomersDatalist"
                   placeholder="Ej: David, Ana..." 
                   class="w-full bg-white/10 text-white px-3 py-2 rounded-xl border border-white/10 text-xs focus:outline-none focus:border-white/30"
                 />
+                <datalist id="existingCustomersDatalist"></datalist>
               </div>
 
               <div>
@@ -500,6 +502,27 @@
             </div>
             <div id="whRewardPreviewText" class="text-[11px] text-emerald-300/90 mt-2 font-medium text-center">
               Por cada 5 vapers que venda este trabajador, le regalas 1 vaper gratis.
+            </div>
+          </div>
+
+          <!-- Comisión Económica por Unidad (€/ud) para Consignación -->
+          <div id="whCommissionPerUnitGroup" class="bg-slate-900/80 p-3 rounded-2xl border border-white/10">
+            <div class="flex items-center justify-between mb-1.5">
+              <label for="inputWhCommissionPerUnit" class="text-xs font-bold text-white">💶 Comisión económica por unidad (€/ud)</label>
+              <span class="text-[10px] text-slate-400">Opcional</span>
+            </div>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              id="inputWhCommissionPerUnit"
+              value="0"
+              oninput="window.app.updateWhRewardPreviewText()"
+              placeholder="Ej: 2.00"
+              class="w-full bg-slate-950 text-emerald-400 font-black text-center px-3 py-2 rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-emerald-500"
+            />
+            <div id="whCommissionPreviewText" class="text-[11px] text-slate-400 mt-1.5 text-center">
+              Sin comisión fija en € (0.00 €/ud). Si pones ej. 2.00 €, se restará automáticamente de lo que debe entregar.
             </div>
           </div>
 
@@ -821,11 +844,23 @@
       </div>
     </div>
 
+    <!-- ============================================================= -->
+    <!-- MODAL 11: CUENTA CORRIENTE DE CLIENTES (FIADOS Y ABONOS)      -->
+    <!-- ============================================================= -->
+    <div id="customerLedgerModal" class="modal-overlay">
+      <div class="modal-sheet">
+        <div class="w-9 h-1 rounded-full bg-white/25 mx-auto mb-3"></div>
+        <div id="customerLedgerModalBody">
+          <!-- Renderizado dinámico por app.js -->
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- SDK oficial de Supabase para Realtime + PostgreSQL en la nube -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- Inicialización modular mediante ES Modules -->
-  <script type="module" src="js/app.js?v=5.4"></script>
+  <script type="module" src="js/app.js?v=5.5"></script>
 </body>
 </html>

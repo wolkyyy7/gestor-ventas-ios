@@ -10,7 +10,7 @@
  * - Valoración financiera y generador de mensajes preescritos de stock listos para copiar y pegar
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.4';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
 
 export class AgentInventory {
   /**
@@ -40,6 +40,30 @@ export class AgentInventory {
   }
 
   /**
+   * Obtiene la configuración de comisiones económicas (€/unidad) por almacén/trabajador.
+   */
+  async getWorkerCommissionsConfig() {
+    const cfg = await this.storage.getConfig('worker_commissions_config', {});
+    return (cfg && typeof cfg === 'object') ? { ...cfg } : {};
+  }
+
+  /**
+   * Guarda la comisión económica por unidad vendida para un trabajador concreto en `app_config`.
+   */
+  async setWorkerCommissionPerUnit(warehouseId, rate) {
+    if (!warehouseId) return 0;
+    const parsed = parseFloat(rate);
+    const cleanRate = (Number.isFinite(parsed) && parsed >= 0) ? parseFloat(parsed.toFixed(2)) : 0;
+    const cfg = await this.getWorkerCommissionsConfig();
+    cfg[warehouseId] = {
+      ...(cfg[warehouseId] || {}),
+      commissionPerUnit: cleanRate
+    };
+    await this.storage.setConfig('worker_commissions_config', cfg);
+    return cleanRate;
+  }
+
+  /**
    * Crea un nuevo almacén secundario (ej. casa de un trabajador) con su regla de comisión.
    */
   async addWarehouse({
@@ -50,7 +74,8 @@ export class AgentInventory {
     notes = '',
     workerPin = '',
     rewardEveryNUnits = 5,
-    rewardFreeUnits = 1
+    rewardFreeUnits = 1,
+    commissionPerUnit = 0
   }) {
     if (!name || !name.trim()) {
       throw new Error('El nombre del almacén o casa del trabajador es obligatorio.');
@@ -78,7 +103,11 @@ export class AgentInventory {
       updatedAt: now
     };
 
-    return await this.storage.saveWarehouse(newWarehouse);
+    const saved = await this.storage.saveWarehouse(newWarehouse);
+    if (commissionPerUnit !== undefined && commissionPerUnit !== null) {
+      await this.setWorkerCommissionPerUnit(saved.id, commissionPerUnit);
+    }
+    return saved;
   }
 
   /**
@@ -120,7 +149,11 @@ export class AgentInventory {
       existing.cashSettledAmount = Math.max(0, parseFloat(data.cashSettledAmount) || 0);
     }
 
-    return await this.storage.saveWarehouse(existing);
+    const saved = await this.storage.saveWarehouse(existing);
+    if (data.commissionPerUnit !== undefined && !existing.isMain) {
+      await this.setWorkerCommissionPerUnit(existing.id, data.commissionPerUnit);
+    }
+    return saved;
   }
 
   /**
@@ -182,7 +215,7 @@ export class AgentInventory {
   /**
    * Registra que el trabajador ha entregado `amount` (€) de recaudación al jefe.
    */
-  async settleWorkerCash({ workerWarehouseId, amount, notes = '' }) {
+  async settleWorkerCash({ workerWarehouseId, amount, paymentMethod = 'Efectivo', notes = '' }) {
     if (!workerWarehouseId) {
       throw new Error('Debes seleccionar el trabajador/almacén que entrega el dinero.');
     }
@@ -197,6 +230,7 @@ export class AgentInventory {
       throw new Error('Almacén del trabajador no encontrado.');
     }
 
+    const cleanMethod = ['Efectivo', 'Tarjeta'].includes(paymentMethod) ? paymentMethod : 'Efectivo';
     const cleanAmount = parseFloat(parsedAmount.toFixed(2));
     warehouse.cashSettledAmount = parseFloat(
       ((parseFloat(warehouse.cashSettledAmount) || 0) + cleanAmount).toFixed(2)
@@ -208,6 +242,7 @@ export class AgentInventory {
       warehouseId: workerWarehouseId,
       warehouseName: warehouse.name,
       workerName: warehouse.workerName || warehouse.name,
+      productName: cleanMethod,
       amount: cleanAmount,
       notes: (notes || '').trim(),
       timestamp: new Date().toISOString()
@@ -217,7 +252,84 @@ export class AgentInventory {
       success: true,
       warehouse,
       settlement,
-      message: `Liquidación registrada: ${parsedAmount.toFixed(2)}€ recibidos de ${warehouse.workerName || warehouse.name}.`
+      message: `Liquidación registrada: ${parsedAmount.toFixed(2)}€ (${cleanMethod}) recibidos de ${warehouse.workerName || warehouse.name}.`
+    };
+  }
+
+  /**
+   * Registra un pago directo de comisiones (€) entregado al trabajador aparte del cruce de caja.
+   */
+  async payWorkerCommission({ workerWarehouseId, amount, paymentMethod = 'Efectivo', notes = '' }) {
+    if (!workerWarehouseId) {
+      throw new Error('Debes seleccionar el trabajador/almacén.');
+    }
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      throw new Error('El importe de comisión abonada debe ser mayor que 0€.');
+    }
+    const warehouse = await this.getWarehouse(workerWarehouseId);
+    if (!warehouse) {
+      throw new Error('Almacén del trabajador no encontrado.');
+    }
+
+    const cleanMethod = ['Efectivo', 'Tarjeta'].includes(paymentMethod) ? paymentMethod : 'Efectivo';
+    const cleanAmount = parseFloat(parsedAmount.toFixed(2));
+
+    const settlement = await this.storage.saveSettlement({
+      type: 'commission_payout',
+      warehouseId: workerWarehouseId,
+      warehouseName: warehouse.name,
+      workerName: warehouse.workerName || warehouse.name,
+      productName: cleanMethod,
+      amount: cleanAmount,
+      notes: (notes || '').trim(),
+      timestamp: new Date().toISOString()
+    });
+
+    return {
+      success: true,
+      warehouse,
+      settlement,
+      message: `Pago de comisión registrado: ${cleanAmount.toFixed(2)}€ (${cleanMethod}) a ${warehouse.workerName || warehouse.name}.`
+    };
+  }
+
+  /**
+   * Revierte un movimiento de liquidación de trabajador (`cash_settlement`, `reward_vaper` o `commission_payout`).
+   */
+  async revertWorkerSettlement(settlementId) {
+    const all = await this.storage.getAllSettlements();
+    const st = all.find(s => s.id === settlementId);
+    if (!st) {
+      throw new Error('Movimiento de trabajador no encontrado.');
+    }
+    if (st.type === 'customer_payment') {
+      throw new Error('Usa deleteCustomerPayment para anular abonos de clientes.');
+    }
+
+    const wh = st.warehouseId ? await this.getWarehouse(st.warehouseId) : null;
+    if (wh) {
+      if (st.type === 'cash_settlement') {
+        wh.cashSettledAmount = parseFloat(
+          Math.max(0, (parseFloat(wh.cashSettledAmount) || 0) - (parseFloat(st.amount) || 0)).toFixed(2)
+        );
+        await this.storage.saveWarehouse(wh);
+      } else if (st.type === 'reward_vaper') {
+        wh.rewardVapersDelivered = Math.max(0, (parseInt(wh.rewardVapersDelivered, 10) || 0) - (parseInt(st.count, 10) || 0));
+        await this.storage.saveWarehouse(wh);
+        if (st.productId && st.fromWarehouseId) {
+          try {
+            await this.adjustStock(st.productId, parseInt(st.count, 10) || 1, st.fromWarehouseId);
+          } catch (_) {}
+        }
+      }
+    }
+
+    await this.storage.deleteSettlement(settlementId);
+    return {
+      success: true,
+      revertedSettlement: st,
+      message: 'Movimiento de trabajador anulado y saldo recalculado.'
     };
   }
 
