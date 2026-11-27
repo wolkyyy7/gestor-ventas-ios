@@ -10,7 +10,7 @@
  * - Valoración financiera y generador de mensajes preescritos de stock listos para copiar y pegar
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.6';
 
 export class AgentInventory {
   /**
@@ -394,6 +394,13 @@ export class AgentInventory {
   // ==========================================
 
   /**
+   * Normaliza nombres de clientes para unificar reservas aunque varíen mayúsculas o espacios.
+   */
+  _normalizeCustomerKey(name) {
+    return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  /**
    * Obtiene las reservas filtradas por estado y almacén.
    */
   async getReservations({ status = 'active', warehouseId = 'all', productId = null } = {}) {
@@ -411,7 +418,7 @@ export class AgentInventory {
 
   /**
    * Crea una nueva reserva de unidades para un cliente concreto sin descontar aún la venta,
-   * bloqueando esas unidades del stock libre disponible.
+   * bloqueando esas unidades del stock libre disponible (o suma unidades si ya reservó ese sabor).
    */
   async addReservation({
     productId,
@@ -431,10 +438,11 @@ export class AgentInventory {
     }
 
     const targetWh = (!warehouseId || warehouseId === 'all') ? MAIN_WAREHOUSE_ID : warehouseId;
-    const [product, warehouse, activeReservations] = await Promise.all([
+    const [product, warehouse, activeReservations, allActiveReservations] = await Promise.all([
       this.getProduct(productId),
       this.getWarehouse(targetWh),
-      this.getReservations({ status: 'active', warehouseId: targetWh, productId })
+      this.getReservations({ status: 'active', warehouseId: targetWh, productId }),
+      this.getReservations({ status: 'active' })
     ]);
 
     if (!product) {
@@ -457,6 +465,42 @@ export class AgentInventory {
     const parsedPrice = (agreedUnitPrice !== null && agreedUnitPrice !== '' && !isNaN(parseFloat(agreedUnitPrice)))
       ? parseFloat(agreedUnitPrice)
       : (parseFloat(product.sellPrice) || 12.00);
+    const cleanPrice = parseFloat(parsedPrice.toFixed(2));
+    const cleanNotes = (notes || '').trim();
+
+    const custKey = this._normalizeCustomerKey(customerName);
+    const matchedGlobal = (allActiveReservations || []).find(
+      r => this._normalizeCustomerKey(r.customerName) === custKey && String(r.customerName || '').trim()
+    );
+    const canonicalCustomerName = matchedGlobal
+      ? String(matchedGlobal.customerName).trim()
+      : customerName.trim();
+
+    const existingSameFlavor = activeReservations.find(
+      r =>
+        this._normalizeCustomerKey(r.customerName) === custKey &&
+        Math.abs((parseFloat(r.agreedUnitPrice) || 0) - cleanPrice) < 0.005
+    );
+
+    if (existingSameFlavor) {
+      existingSameFlavor.quantity = (parseInt(existingSameFlavor.quantity, 10) || 0) + qty;
+      existingSameFlavor.customerName = canonicalCustomerName;
+      if (cleanNotes) {
+        const prevNotes = String(existingSameFlavor.notes || '').trim();
+        if (!prevNotes) {
+          existingSameFlavor.notes = cleanNotes;
+        } else if (!prevNotes.split(/\s*·\s*/).includes(cleanNotes)) {
+          existingSameFlavor.notes = `${prevNotes} · ${cleanNotes}`;
+        }
+      }
+      const savedMerged = await this.storage.saveReservation(existingSameFlavor);
+      return {
+        success: true,
+        merged: true,
+        reservation: savedMerged,
+        message: `Sumadas +${qty} uds de "${product.name}" a la reserva de ${canonicalCustomerName} (Total: ${savedMerged.quantity} uds).`
+      };
+    }
 
     const reservation = await this.storage.saveReservation({
       productId: product.id,
@@ -464,18 +508,19 @@ export class AgentInventory {
       warehouseId: targetWh,
       warehouseName: whName,
       workerName: warehouse?.workerName || '',
-      customerName: customerName.trim(),
+      customerName: canonicalCustomerName,
       quantity: qty,
-      agreedUnitPrice: parseFloat(parsedPrice.toFixed(2)),
-      notes: (notes || '').trim(),
+      agreedUnitPrice: cleanPrice,
+      notes: cleanNotes,
       status: 'active',
       createdAt: new Date().toISOString()
     });
 
     return {
       success: true,
+      merged: false,
       reservation,
-      message: `Reservadas ${qty} uds de "${product.name}" para ${customerName.trim()} (${whName}).`
+      message: `Reservadas ${qty} uds de "${product.name}" para ${canonicalCustomerName} (${whName}).`
     };
   }
 

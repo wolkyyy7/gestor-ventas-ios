@@ -1192,7 +1192,7 @@ export class AgentStorage {
     ]);
 
     return {
-      version: '5.5',
+      version: '5.6',
       exportedAt: new Date().toISOString(),
       appName: 'GestorInventarioVentas',
       data: {

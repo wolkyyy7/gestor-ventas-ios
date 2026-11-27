@@ -9,8 +9,8 @@
  * - Mantener la app funcional offline usando IndexedDB como caché local inmediata
  */
 
-import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=5.5';
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
+import { DEFAULT_SUPABASE_CONFIG } from '../config/supabaseConfig.js?v=5.6';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.6';
 
 const SUPABASE_CONFIG_KEY = 'gv_supabase_config';
 

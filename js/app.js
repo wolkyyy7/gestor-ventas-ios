@@ -6,16 +6,16 @@
  * con una experiencia nativa iOS 18 Spatial Glassmorphism, Dynamic Island y física elástica.
  */
 
-import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.5';
-import { AgentInventory } from './agents/AgentInventory.js?v=5.5';
-import { AgentSales } from './agents/AgentSales.js?v=5.5';
-import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.5';
-import { AgentAuth } from './agents/AgentAuth.js?v=5.5';
-import { AgentNotifications } from './agents/AgentNotifications.js?v=5.5';
-import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.5';
-import { AgentSupabase } from './agents/AgentSupabase.js?v=5.5';
+import { AgentStorage, MAIN_WAREHOUSE_ID } from './agents/AgentStorage.js?v=5.6';
+import { AgentInventory } from './agents/AgentInventory.js?v=5.6';
+import { AgentSales } from './agents/AgentSales.js?v=5.6';
+import { AgentAnalytics } from './agents/AgentAnalytics.js?v=5.6';
+import { AgentAuth } from './agents/AgentAuth.js?v=5.6';
+import { AgentNotifications } from './agents/AgentNotifications.js?v=5.6';
+import { AgentCloudSync } from './agents/AgentCloudSync.js?v=5.6';
+import { AgentSupabase } from './agents/AgentSupabase.js?v=5.6';
 
-const APP_VERSION = 'v5.5';
+const APP_VERSION = 'v5.6';
 
 class AppController {
   constructor() {
@@ -855,27 +855,200 @@ class AppController {
     this.renderSalesView();
   }
 
+  _normalizeCustomerKey(name) {
+    return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  async _getPendingCustomersDirectory() {
+    const isWorker = this.authAgent.isWorker();
+    const assignedWh = this.authAgent.getAssignedWarehouseId();
+    const scopeWh = (isWorker && assignedWh) ? assignedWh : 'all';
+
+    const [allSales, allSettlements, activeReservations] = await Promise.all([
+      this.storageAgent.getAllSales(),
+      this.storageAgent.getAllSettlements(),
+      this.inventoryAgent.getReservations({ status: 'active', warehouseId: scopeWh })
+    ]);
+
+    const accounts = this.analyticsAgent.computeCustomerAccounts(allSales, allSettlements, scopeWh);
+    const map = new Map();
+
+    const ensureEntry = (rawName, whId = MAIN_WAREHOUSE_ID) => {
+      const cleanName = String(rawName || '').trim();
+      const key = this._normalizeCustomerKey(cleanName);
+      if (!key) return null;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          name: cleanName,
+          debtBalance: 0,
+          openDebtCount: 0,
+          reservedUnits: 0,
+          reservedValue: 0,
+          reservationsCount: 0,
+          primaryWarehouseId: whId || MAIN_WAREHOUSE_ID
+        });
+      }
+      return map.get(key);
+    };
+
+    (accounts.debtorsByCustomer || []).forEach(d => {
+      const entry = ensureEntry(d.customerName, d.primaryWarehouseId);
+      if (!entry) return;
+      entry.debtBalance = parseFloat((Number(d.liveBalance) || 0).toFixed(2));
+      entry.openDebtCount = Number(d.openSalesCount) || 0;
+    });
+
+    (activeReservations || []).forEach(r => {
+      const entry = ensureEntry(r.customerName, r.warehouseId);
+      if (!entry) return;
+      const qty = parseInt(r.quantity, 10) || 0;
+      const price = parseFloat(r.agreedUnitPrice);
+      const unitPrice = Number.isFinite(price) ? price : 12;
+      entry.reservedUnits += qty;
+      entry.reservedValue = parseFloat((entry.reservedValue + qty * unitPrice).toFixed(2));
+      entry.reservationsCount += 1;
+      if (!entry.primaryWarehouseId && r.warehouseId) {
+        entry.primaryWarehouseId = r.warehouseId;
+      }
+    });
+
+    const list = Array.from(map.values()).filter(item => item.debtBalance > 0.009 || item.reservationsCount > 0);
+    this._pendingCustomersCache = list;
+    return list;
+  }
+
+  _populatePendingCustomerSelect(selectEl, list = [], mode = 'fiado', selectedName = '') {
+    if (!selectEl) return;
+    if (!Array.isArray(list) || list.length === 0) {
+      selectEl.classList.add('hidden');
+      selectEl.innerHTML = '';
+      return;
+    }
+
+    selectEl.classList.remove('hidden');
+    const selectedKey = this._normalizeCustomerKey(selectedName);
+    let html = `<option value="">➕ Nuevo cliente (escribir nombre abajo)...</option>`;
+
+    const renderOpt = (item, label) => {
+      const isSel = selectedKey && item.key === selectedKey ? 'selected' : '';
+      return `<option value="${this._escapeHtml(item.name)}" ${isSel}>${this._escapeHtml(label)}</option>`;
+    };
+
+    if (mode === 'reservation') {
+      const withRes = list
+        .filter(i => i.reservationsCount > 0)
+        .sort((a, b) => b.reservedUnits - a.reservedUnits || a.name.localeCompare(b.name));
+      const onlyDebt = list
+        .filter(i => i.reservationsCount === 0 && i.debtBalance > 0.009)
+        .sort((a, b) => b.debtBalance - a.debtBalance || a.name.localeCompare(b.name));
+
+      if (withRes.length > 0) {
+        html += `<optgroup label="📌 Ya tienen reservas activas">` +
+          withRes.map(i => {
+            const debtNote = i.debtBalance > 0.009 ? ` · Debe ${i.debtBalance.toFixed(2)}€` : '';
+            return renderOpt(i, `${i.name} (${i.reservedUnits} uds res. · ${i.reservedValue.toFixed(2)}€${debtNote})`);
+          }).join('') +
+          `</optgroup>`;
+      }
+      if (onlyDebt.length > 0) {
+        html += `<optgroup label="⏳ Con fiados pendientes">` +
+          onlyDebt.map(i => renderOpt(i, `${i.name} (Debe ${i.debtBalance.toFixed(2)}€)`)).join('') +
+          `</optgroup>`;
+      }
+    } else {
+      const withDebt = list
+        .filter(i => i.debtBalance > 0.009)
+        .sort((a, b) => b.debtBalance - a.debtBalance || a.name.localeCompare(b.name));
+      const onlyRes = list
+        .filter(i => i.debtBalance <= 0.009 && i.reservationsCount > 0)
+        .sort((a, b) => b.reservedUnits - a.reservedUnits || a.name.localeCompare(b.name));
+
+      if (withDebt.length > 0) {
+        html += `<optgroup label="⏳ Con fiados pendientes">` +
+          withDebt.map(i => {
+            const resNote = i.reservedUnits > 0 ? ` · ${i.reservedUnits} uds res.` : '';
+            return renderOpt(i, `${i.name} (Debe ${i.debtBalance.toFixed(2)}€${resNote})`);
+          }).join('') +
+          `</optgroup>`;
+      }
+      if (onlyRes.length > 0) {
+        html += `<optgroup label="📌 Con reservas activas">` +
+          onlyRes.map(i => renderOpt(i, `${i.name} (${i.reservedUnits} uds reservadas · ${i.reservedValue.toFixed(2)}€)`)).join('') +
+          `</optgroup>`;
+      }
+    }
+
+    selectEl.innerHTML = html;
+    if (selectedKey) {
+      const matched = list.find(i => i.key === selectedKey);
+      selectEl.value = matched ? matched.name : '';
+    } else {
+      selectEl.value = '';
+    }
+  }
+
+  _groupReservationsByCustomer(reservations = []) {
+    const groupsMap = new Map();
+    (reservations || []).forEach(r => {
+      const cleanName = String(r.customerName || 'Cliente').trim() || 'Cliente';
+      const key = this._normalizeCustomerKey(cleanName);
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          customerName: cleanName,
+          customerKey: key,
+          items: [],
+          totalUnits: 0,
+          totalValue: 0,
+          primaryWarehouseId: r.warehouseId || MAIN_WAREHOUSE_ID,
+          latestDate: r.createdAt || new Date(0).toISOString()
+        });
+      }
+      const g = groupsMap.get(key);
+      const qty = parseInt(r.quantity, 10) || 0;
+      const parsedPrice = parseFloat(r.agreedUnitPrice);
+      const unitPrice = Number.isFinite(parsedPrice) ? parsedPrice : 12;
+      g.items.push(r);
+      g.totalUnits += qty;
+      g.totalValue = parseFloat((g.totalValue + qty * unitPrice).toFixed(2));
+      if (r.createdAt && new Date(r.createdAt) >= new Date(g.latestDate)) {
+        g.latestDate = r.createdAt;
+        g.primaryWarehouseId = r.warehouseId || g.primaryWarehouseId;
+      }
+    });
+
+    const groups = Array.from(groupsMap.values());
+    groups.forEach(g => {
+      g.items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    });
+    return groups.sort((a, b) => new Date(b.latestDate || 0) - new Date(a.latestDate || 0));
+  }
+
   // Bottom Sheet Modal: Preparar y Confirmar Venta Multi-Almacén
   async openQuickSaleSheet(productId, prefill = null) {
     const isWorker = this.authAgent.isWorker();
     const assignedWh = this.authAgent.getAssignedWarehouseId();
 
-    const [productsList, warehouses, allSales, allReservations] = await Promise.all([
+    const [productsList, warehouses, allSales, allReservations, pendingList] = await Promise.all([
       this.inventoryAgent.getProducts({ warehouseId: 'all' }),
       this.inventoryAgent.getWarehouses(),
       this.storageAgent.getAllSales(),
-      this.storageAgent.getAllReservations()
+      this.storageAgent.getAllReservations(),
+      this._getPendingCustomersDirectory()
     ]);
     const datalist = document.getElementById('existingCustomersDatalist');
     if (datalist) {
       const uniqueNames = new Set();
       (allSales || []).forEach(s => { if (s.buyerName && s.buyerName.trim()) uniqueNames.add(s.buyerName.trim()); });
       (allReservations || []).forEach(r => { if (r.customerName && r.customerName.trim()) uniqueNames.add(r.customerName.trim()); });
+      (pendingList || []).forEach(p => { if (p.name && p.name.trim()) uniqueNames.add(p.name.trim()); });
       datalist.innerHTML = Array.from(uniqueNames)
         .sort((a, b) => a.localeCompare(b))
         .map(n => `<option value="${this._escapeHtml(n)}"></option>`)
         .join('');
     }
+    const existingSelect = document.getElementById('modalSaleExistingCustomerSelect');
+    this._populatePendingCustomerSelect(existingSelect, pendingList, 'fiado', prefill?.buyerName || '');
     const product = productsList.find(p => p.id === productId);
     if (!product) return;
 
@@ -919,8 +1092,64 @@ class AppController {
     if (inputNotes) inputNotes.value = prefill?.notes || '';
 
     this._updateSaleModalPreview(false);
+    this._updateSaleCustomerPendingHint();
     modal.classList.add('active');
     this._playChime('tap');
+  }
+
+  onSaleExistingCustomerSelect(customerName) {
+    const inputBuyer = document.getElementById('modalSaleBuyerInput');
+    if (inputBuyer) {
+      inputBuyer.value = customerName || '';
+      if (!customerName) {
+        inputBuyer.focus();
+      }
+    }
+    this._playChime('tap');
+    this._updateSaleCustomerPendingHint();
+  }
+
+  onSaleBuyerInputChange() {
+    const inputBuyer = document.getElementById('modalSaleBuyerInput');
+    const existingSelect = document.getElementById('modalSaleExistingCustomerSelect');
+    const key = this._normalizeCustomerKey(inputBuyer?.value || '');
+    const matched = (this._pendingCustomersCache || []).find(i => i.key === key);
+    if (existingSelect) {
+      existingSelect.value = matched ? matched.name : '';
+    }
+    this._updateSaleCustomerPendingHint();
+  }
+
+  _updateSaleCustomerPendingHint() {
+    const hintEl = document.getElementById('modalSaleCustomerPendingHint');
+    if (!hintEl) return;
+    const rawName = document.getElementById('modalSaleBuyerInput')?.value || '';
+    const key = this._normalizeCustomerKey(rawName);
+    const m = key ? (this._pendingCustomersCache || []).find(i => i.key === key) : null;
+
+    if (!m) {
+      hintEl.classList.add('hidden');
+      hintEl.textContent = '';
+      return;
+    }
+
+    const parsedQty = parseInt(this.saleQuantity, 10) || 1;
+    const parsedPrice = parseFloat(this.saleUnitPrice);
+    const unitPrice = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0;
+    const saleTotal = parseFloat((parsedQty * unitPrice).toFixed(2));
+
+    hintEl.classList.remove('hidden');
+    if (this.salePaymentStatus === 'pending') {
+      const nextDebt = parseFloat((m.debtBalance + saleTotal).toFixed(2));
+      hintEl.className = 'text-[10px] text-amber-300 font-semibold mt-1';
+      hintEl.textContent = `⏳ Se sumará a la deuda de ${m.name}: ${m.debtBalance.toFixed(2)}€ + ${saleTotal.toFixed(2)}€ = ${nextDebt.toFixed(2)}€`;
+    } else {
+      const parts = [];
+      if (m.debtBalance > 0.009) parts.push(`Debe ${m.debtBalance.toFixed(2)}€`);
+      if (m.reservedUnits > 0) parts.push(`${m.reservedUnits} uds reservadas`);
+      hintEl.className = 'text-[10px] text-slate-300 font-semibold mt-1';
+      hintEl.textContent = `📌 ${m.name}: ${parts.join(' · ')}`;
+    }
   }
 
   setModalSaleWarehouse(warehouseId) {
@@ -1087,6 +1316,8 @@ class AppController {
         if (labelBuyer) labelBuyer.innerHTML = '👤 Cliente / Comprador (Opcional)';
       }
     }
+
+    this._updateSaleCustomerPendingHint();
   }
 
   setSalePaymentMethod(method) {
@@ -1308,8 +1539,15 @@ class AppController {
       const notes = notesInput ? notesInput.value.trim() : '';
 
       if (!customerName) {
-        this.showToast('Escribe primero el nombre del cliente arriba para reservar', '📌');
-        if (buyerInput) buyerInput.focus();
+        const moreDetails = document.getElementById('modalSaleMoreOptions');
+        if (moreDetails) moreDetails.open = true;
+        this.showToast('Elige una persona del desplegable o escribe su nombre para reservar', '📌');
+        const existingSelect = document.getElementById('modalSaleExistingCustomerSelect');
+        if (existingSelect && !existingSelect.classList.contains('hidden')) {
+          existingSelect.focus();
+        } else if (buyerInput) {
+          buyerInput.focus();
+        }
         return;
       }
 
@@ -2715,6 +2953,141 @@ class AppController {
   // -------------------------------------------------------------------------
   // SUB-VISTA 2.D Y MODAL DE RESERVAS DE CLIENTES
   // -------------------------------------------------------------------------
+  _buildGroupedReservationCardHtml(g, { compact = false, refreshModal = false } = {}) {
+    const firstItem = g.items[0] || {};
+    const custAttr = this._escJsAttr(g.customerName);
+    const whAttr = this._escJsAttr(g.primaryWarehouseId || MAIN_WAREHOUSE_ID);
+
+    if (compact) {
+      return `
+        <div class="bg-slate-900/90 p-2.5 rounded-xl border border-purple-500/30 space-y-2 text-xs">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="font-bold text-purple-300 truncate">👤 ${this._escapeHtml(g.customerName)} · ${g.totalUnits} uds (${g.totalValue.toFixed(2)}€)</div>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onclick="window.app.openReservationModal(null, '${whAttr}', '${custAttr}')"
+                class="btn-pressable bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 px-2 py-1 rounded-lg text-[10px] font-bold"
+              >+ Añadir</button>
+              ${g.items.length > 1 ? `
+                <button
+                  type="button"
+                  onclick="window.app.completeAllCustomerReservations('${custAttr}', 'Efectivo', ${refreshModal ? 'true' : 'false'})"
+                  class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold"
+                >💵 Todo</button>
+                <button
+                  type="button"
+                  onclick="window.app.completeAllCustomerReservations('${custAttr}', 'Tarjeta', ${refreshModal ? 'true' : 'false'})"
+                  class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold"
+                >💳</button>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            ${g.items.map(r => {
+              const parsedUnit = parseFloat(r.agreedUnitPrice);
+              const unitPrice = Number.isFinite(parsedUnit) ? parsedUnit : 12;
+              return `
+                <div class="bg-slate-950/70 px-2.5 py-2 rounded-lg border border-white/10 flex items-center justify-between gap-2">
+                  <div class="min-w-0 flex-1">
+                    <div class="font-semibold text-white truncate">${r.quantity}x ${this._escapeHtml(r.productName)} · ${(r.quantity * unitPrice).toFixed(2)}€</div>
+                    <div class="text-[10px] text-slate-400 truncate">${this._escapeHtml(r.warehouseName || 'Principal')}${r.notes ? ` · 📝 ${this._escapeHtml(r.notes)}` : ''}</div>
+                  </div>
+                  <div class="flex items-center gap-1 flex-shrink-0">
+                    <button type="button" onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Efectivo', ${refreshModal ? 'true' : 'false'})" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💵 Cobrar</button>
+                    <button type="button" onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Tarjeta', ${refreshModal ? 'true' : 'false'})" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💳</button>
+                    <button type="button" onclick="window.app.cancelReservationAction('${this._escJsAttr(r.id)}', ${refreshModal ? 'true' : 'false'})" class="btn-pressable text-rose-400 px-1.5 py-1 text-xs font-bold">✕</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="bg-slate-900/90 p-3 rounded-2xl border border-purple-500/35 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="badge badge-reserved text-[10px]">📌 Cliente: ${this._escapeHtml(g.customerName)}</span>
+              <span class="text-[11px] font-black text-emerald-300">${g.totalUnits} uds · ${g.totalValue.toFixed(2)}€</span>
+              ${g.items.length === 1 && firstItem.warehouseName ? `<span class="badge badge-warehouse text-[10px]">${this._escapeHtml(firstItem.warehouseName)}</span>` : ''}
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5 flex-shrink-0">
+            <button
+              type="button"
+              onclick="window.app.openReservationModal(null, '${whAttr}', '${custAttr}')"
+              class="btn-pressable bg-purple-600/25 hover:bg-purple-600/45 text-purple-200 border border-purple-500/45 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+            >+ Añadir</button>
+            ${g.items.length > 1 ? `
+              <button
+                type="button"
+                onclick="window.app.completeAllCustomerReservations('${custAttr}', 'Efectivo', false)"
+                class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+              >💵 Cobrar Todo (${g.totalValue.toFixed(2)}€)</button>
+              <button
+                type="button"
+                onclick="window.app.completeAllCustomerReservations('${custAttr}', 'Tarjeta', false)"
+                class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-300 border border-indigo-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+              >💳 Todo</button>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="space-y-1.5">
+          ${g.items.map(r => {
+            const dt = new Date(r.createdAt);
+            const dateStr = dt.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
+            const parsedUnit = parseFloat(r.agreedUnitPrice);
+            const unitPrice = Number.isFinite(parsedUnit) ? parsedUnit : 12;
+            const totalVal = ((parseInt(r.quantity, 10) || 0) * unitPrice).toFixed(2);
+            return `
+              <div class="bg-slate-950/75 p-2.5 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="text-sm font-bold text-white">${this._escapeHtml(r.productName)}</span>
+                    <span class="badge badge-warehouse text-[10px]">${this._escapeHtml(r.warehouseName || 'Principal')}</span>
+                    <span class="text-[10px] text-slate-400">${dateStr}</span>
+                  </div>
+                  <div class="text-xs text-slate-300 mt-0.5">
+                    <strong>${r.quantity} uds</strong> × ${unitPrice.toFixed(2)}€ = <strong class="text-emerald-400">${totalVal}€</strong>
+                  </div>
+                  ${r.notes ? `<div class="text-[11px] text-slate-400 mt-0.5">📝 ${this._escapeHtml(r.notes)}</div>` : ''}
+                </div>
+
+                <div class="flex flex-col gap-1 items-end">
+                  <div class="flex gap-1.5">
+                    <button
+                      type="button"
+                      onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Efectivo')"
+                      class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+                    >💵 Cobrar Efec.</button>
+                    <button
+                      type="button"
+                      onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Tarjeta')"
+                      class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-300 border border-indigo-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+                    >💳 Tarjeta</button>
+                  </div>
+                  <button
+                    type="button"
+                    onclick="window.app.cancelReservationAction('${this._escJsAttr(r.id)}')"
+                    class="btn-pressable text-[10px] text-rose-400 hover:text-rose-300 underline"
+                  >✕ Cancelar y liberar stock</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   async _buildInventoryReservationsSubViewHtml() {
     const isWorker = this.authAgent.isWorker();
     const assignedWh = this.authAgent.getAssignedWarehouseId();
@@ -2725,6 +3098,7 @@ class AppController {
       this.inventoryAgent.getReservations({ status: 'active', warehouseId: isWorker ? assignedWh : 'all' })
     ]);
 
+    const groups = this._groupReservationsByCustomer(reservations);
     const totalResUnits = reservations.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
     const totalResValue = reservations.reduce((sum, r) => sum + ((parseInt(r.quantity, 10) || 0) * (parseFloat(r.agreedUnitPrice) || 12)), 0);
 
@@ -2733,7 +3107,7 @@ class AppController {
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
             <h3 class="text-base font-black text-white flex items-center gap-1.5">
-              <span>📌</span> Reservas Activas de Clientes (${reservations.length})
+              <span>📌</span> Reservas Activas de Clientes (${groups.length} personas · ${reservations.length} líneas)
             </h3>
             <p class="text-xs text-slate-300 mt-0.5">
               Aparta unidades a nombre de un cliente y conviértelas en venta cobrada con 1 toque cuando las recoja.
@@ -2748,8 +3122,8 @@ class AppController {
 
         <div class="grid grid-cols-3 gap-2 text-center mb-3">
           <div class="bg-slate-950/60 p-2.5 rounded-xl border border-white/10">
-            <div class="text-[10px] text-slate-400">Reservas Activas</div>
-            <div class="text-base font-black text-white">${reservations.length}</div>
+            <div class="text-[10px] text-slate-400">Clientes / Líneas</div>
+            <div class="text-base font-black text-white">${groups.length} / ${reservations.length}</div>
           </div>
           <div class="bg-slate-950/60 p-2.5 rounded-xl border border-white/10">
             <div class="text-[10px] text-purple-300">Unidades Apartadas</div>
@@ -2761,7 +3135,7 @@ class AppController {
           </div>
         </div>
 
-        ${reservations.length === 0 ? `
+        ${groups.length === 0 ? `
           <div class="text-center py-8 bg-slate-900/60 rounded-2xl border border-slate-800">
             <div class="text-3xl mb-1.5">📌</div>
             <div class="text-sm font-bold text-slate-300">No hay reservas activas ahora mismo</div>
@@ -2774,66 +3148,29 @@ class AppController {
           </div>
         ` : `
           <div class="space-y-2.5">
-            ${reservations.map(r => {
-              const dt = new Date(r.createdAt);
-              const dateStr = dt.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
-              const totalVal = ((parseInt(r.quantity, 10) || 0) * (parseFloat(r.agreedUnitPrice) || 12)).toFixed(2);
-              return `
-                <div class="bg-slate-900/90 p-3 rounded-2xl border border-purple-500/35 flex flex-wrap items-center justify-between gap-2">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-1.5 mb-1">
-                      <span class="badge badge-reserved text-[10px]">📌 Cliente: ${this._escapeHtml(r.customerName)}</span>
-                      <span class="badge badge-warehouse text-[10px]">${this._escapeHtml(r.warehouseName || 'Principal')}</span>
-                      <span class="text-[10px] text-slate-400">${dateStr}</span>
-                    </div>
-                    <div class="text-sm font-bold text-white">${this._escapeHtml(r.productName)}</div>
-                    <div class="text-xs text-slate-300 mt-0.5">
-                      <strong>${r.quantity} uds</strong> × ${parseFloat(r.agreedUnitPrice || 12).toFixed(2)}€ = <strong class="text-emerald-400">${totalVal}€</strong>
-                    </div>
-                    ${r.notes ? `<div class="text-[11px] text-slate-400 mt-0.5">📝 ${this._escapeHtml(r.notes)}</div>` : ''}
-                  </div>
-
-                  <div class="flex flex-col gap-1.5 items-end">
-                    <div class="flex gap-1.5">
-                      <button 
-                        type="button"
-                        onclick="window.app.completeReservationQuick('${r.id}', 'Efectivo')"
-                        class="btn-pressable bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
-                      >💵 Cobrar Efec.</button>
-                      <button 
-                        type="button"
-                        onclick="window.app.completeReservationQuick('${r.id}', 'Tarjeta')"
-                        class="btn-pressable bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-300 border border-indigo-500/40 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
-                      >💳 Tarjeta</button>
-                    </div>
-                    <button 
-                      type="button"
-                      onclick="window.app.cancelReservationAction('${r.id}')"
-                      class="btn-pressable text-[10px] text-rose-400 hover:text-rose-300 underline"
-                    >✕ Cancelar y liberar stock</button>
-                  </div>
-                </div>
-              `;
-            }).join('')}
+            ${groups.map(g => this._buildGroupedReservationCardHtml(g, { compact: false, refreshModal: false })).join('')}
           </div>
         `}
       </div>
     `;
   }
 
-  async openReservationModal(defaultProductId = null, defaultWarehouseId = MAIN_WAREHOUSE_ID) {
+  async openReservationModal(defaultProductId = null, defaultWarehouseId = MAIN_WAREHOUSE_ID, defaultCustomerName = '') {
     const isWorker = this.authAgent.isWorker();
     const assignedWh = this.authAgent.getAssignedWarehouseId();
 
-    const [allWarehouses, products, reservations] = await Promise.all([
+    const [allWarehouses, products, reservations, allSales, pendingList] = await Promise.all([
       this.inventoryAgent.getWarehouses(),
       this.inventoryAgent.getProducts({ warehouseId: isWorker ? assignedWh : 'all' }),
-      this.inventoryAgent.getReservations({ status: 'active', warehouseId: isWorker ? assignedWh : 'all' })
+      this.inventoryAgent.getReservations({ status: 'active', warehouseId: isWorker ? assignedWh : 'all' }),
+      this.storageAgent.getAllSales(),
+      this._getPendingCustomersDirectory()
     ]);
 
     const warehouses = isWorker ? allWarehouses.filter(w => w.id === assignedWh) : allWarehouses;
 
     const modal = document.getElementById('reservationFormModal');
+    const existingSelect = document.getElementById('resModalExistingCustomerSelect');
     const custInput = document.getElementById('resModalCustomerName');
     const whSelect = document.getElementById('resModalWarehouseSelect');
     const prodSelect = document.getElementById('resModalProductSelect');
@@ -2843,6 +3180,20 @@ class AppController {
     const activeListEl = document.getElementById('resModalActiveListContainer');
 
     if (!modal || !whSelect || !prodSelect) return;
+
+    const datalist = document.getElementById('existingCustomersDatalist');
+    if (datalist) {
+      const uniqueNames = new Set();
+      (allSales || []).forEach(s => { if (s.buyerName && s.buyerName.trim()) uniqueNames.add(s.buyerName.trim()); });
+      (reservations || []).forEach(r => { if (r.customerName && r.customerName.trim()) uniqueNames.add(r.customerName.trim()); });
+      (pendingList || []).forEach(p => { if (p.name && p.name.trim()) uniqueNames.add(p.name.trim()); });
+      datalist.innerHTML = Array.from(uniqueNames)
+        .sort((a, b) => a.localeCompare(b))
+        .map(n => `<option value="${this._escapeHtml(n)}"></option>`)
+        .join('');
+    }
+
+    this._populatePendingCustomerSelect(existingSelect, pendingList, 'reservation', defaultCustomerName || '');
 
     const targetWh = isWorker && assignedWh
       ? assignedWh
@@ -2864,7 +3215,7 @@ class AppController {
       </option>
     `).join('');
 
-    if (custInput) custInput.value = '';
+    if (custInput) custInput.value = defaultCustomerName || '';
     if (qtyInput) qtyInput.value = 1;
     const defaultProd = products.find(p => p.id === targetProd);
     const defaultPrice = (defaultProd && Number.isFinite(parseFloat(defaultProd.sellPrice))) ? parseFloat(defaultProd.sellPrice).toFixed(2) : '12.00';
@@ -2872,32 +3223,124 @@ class AppController {
     if (notesInput) notesInput.value = '';
 
     if (activeListEl) {
-      if (reservations.length === 0) {
+      const groups = this._groupReservationsByCustomer(reservations);
+      if (groups.length === 0) {
         activeListEl.innerHTML = `<div class="text-xs text-slate-500 text-center py-3">No hay reservas activas.</div>`;
       } else {
-        activeListEl.innerHTML = reservations.map(r => {
-          const parsedUnit = parseFloat(r.agreedUnitPrice);
-          const unitPrice = Number.isFinite(parsedUnit) ? parsedUnit : 12;
-          return `
-          <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between gap-2 text-xs">
-            <div class="min-w-0 flex-1">
-              <div class="font-bold text-purple-300 truncate">👤 ${this._escapeHtml(r.customerName)} • ${r.quantity}x ${this._escapeHtml(r.productName)}</div>
-              <div class="text-[10px] text-slate-400">${this._escapeHtml(r.warehouseName)} • ${(r.quantity * unitPrice).toFixed(2)}€</div>
-            </div>
-            <div class="flex items-center gap-1 flex-shrink-0">
-              <button type="button" onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Efectivo', true)" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💵 Cobrar</button>
-              <button type="button" onclick="window.app.completeReservationQuick('${this._escJsAttr(r.id)}', 'Tarjeta', true)" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded-lg text-[10px] font-bold">💳</button>
-              <button type="button" onclick="window.app.cancelReservationAction('${this._escJsAttr(r.id)}', true)" class="btn-pressable text-rose-400 px-1.5 py-1 text-xs font-bold">✕</button>
-            </div>
-          </div>
-        `;
-        }).join('');
+        activeListEl.innerHTML = groups.map(g => this._buildGroupedReservationCardHtml(g, { compact: true, refreshModal: true })).join('');
       }
     }
 
+    this._updateResCustomerPendingHint();
     await this.onResModalFieldChange();
     modal.classList.add('active');
     this._playChime('tap');
+  }
+
+  onResExistingCustomerSelect(customerName) {
+    const custInput = document.getElementById('resModalCustomerName');
+    if (custInput) {
+      custInput.value = customerName || '';
+      if (!customerName) {
+        custInput.focus();
+      }
+    }
+    this._playChime('tap');
+    this._updateResCustomerPendingHint();
+  }
+
+  onResCustomerInputChange() {
+    const custInput = document.getElementById('resModalCustomerName');
+    const existingSelect = document.getElementById('resModalExistingCustomerSelect');
+    const key = this._normalizeCustomerKey(custInput?.value || '');
+    const matched = (this._pendingCustomersCache || []).find(i => i.key === key);
+    if (existingSelect) {
+      existingSelect.value = matched ? matched.name : '';
+    }
+    this._updateResCustomerPendingHint();
+  }
+
+  _updateResCustomerPendingHint() {
+    const hintEl = document.getElementById('resModalCustomerPendingHint');
+    if (!hintEl) return;
+    const rawName = document.getElementById('resModalCustomerName')?.value || '';
+    const key = this._normalizeCustomerKey(rawName);
+    const m = key ? (this._pendingCustomersCache || []).find(i => i.key === key) : null;
+
+    if (!m) {
+      hintEl.classList.add('hidden');
+      hintEl.textContent = '';
+      return;
+    }
+
+    const qty = Math.max(1, parseInt(document.getElementById('resModalQtyInput')?.value, 10) || 1);
+    hintEl.classList.remove('hidden');
+    hintEl.className = 'text-[10px] text-purple-300 font-semibold mt-1';
+    if (m.reservedUnits > 0) {
+      hintEl.textContent = `📌 Se añadirá a la lista de ${m.name} (ahora ${m.reservedUnits} uds → ${m.reservedUnits + qty} uds)`;
+    } else {
+      hintEl.textContent = `📌 Se añadirá a la lista de ${m.name} (tiene fiado de ${m.debtBalance.toFixed(2)}€)`;
+    }
+  }
+
+  async completeAllCustomerReservations(customerName, paymentMethod = 'Efectivo', refreshModal = false) {
+    return this._runLocked(`completeAllRes_${this._normalizeCustomerKey(customerName)}`, async () => {
+      const isWorker = this.authAgent.isWorker();
+      const assignedWh = this.authAgent.getAssignedWarehouseId();
+      const scopeWh = (isWorker && assignedWh) ? assignedWh : 'all';
+
+      const reservations = await this.inventoryAgent.getReservations({ status: 'active', warehouseId: scopeWh });
+      const targetKey = this._normalizeCustomerKey(customerName);
+      const matching = (reservations || []).filter(r => this._normalizeCustomerKey(r.customerName) === targetKey);
+      if (matching.length === 0) {
+        this.showToast('No hay reservas activas para ese cliente.', '📌');
+        return;
+      }
+
+      const totalUnits = matching.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+      const totalValue = matching.reduce((sum, r) => {
+        const p = parseFloat(r.agreedUnitPrice);
+        return sum + ((parseInt(r.quantity, 10) || 0) * (Number.isFinite(p) ? p : 12));
+      }, 0);
+
+      if (!confirm(`¿Cobrar las ${matching.length} reservas de ${matching[0].customerName} (${totalUnits} uds · ${totalValue.toFixed(2)}€) por ${paymentMethod}?`)) {
+        return;
+      }
+
+      try {
+        let completedCount = 0;
+        let lastSale = null;
+        for (const r of matching) {
+          const res = await this.salesAgent.completeReservationAsSale(r.id, {
+            paymentMethod,
+            paymentStatus: 'paid'
+          });
+          if (res.sale) {
+            lastSale = res.sale;
+            if (!this.supabaseAgent.isConfigured()) {
+              this.cloudSyncAgent.publishReservationEvent('complete', { id: r.id }).catch(() => {});
+            }
+            this._notifyAndSyncSale(res.sale);
+          }
+          completedCount++;
+        }
+
+        if (lastSale) this.lastCompletedSale = lastSale;
+        this._playChime('success');
+        this.showToast(
+          `Cobradas ${completedCount} reservas de ${matching[0].customerName}: +${totalValue.toFixed(2)}€ (${paymentMethod})`,
+          '💰'
+        );
+
+        if (refreshModal) {
+          document.getElementById('reservationFormModal')?.classList.remove('active');
+        }
+        await this.renderCurrentTab();
+        await this.updateHeaderQuickStats();
+      } catch (err) {
+        alert(`Error completando reservas: ${err.message}`);
+      }
+    });
   }
 
   async onResModalFieldChange() {
@@ -2936,6 +3379,7 @@ class AppController {
     const cur = parseInt(input.value, 10) || 1;
     input.value = Math.min(max, Math.max(1, cur + delta));
     this._playChime('tap');
+    this._updateResCustomerPendingHint();
   }
 
   async confirmReservationFromModal() {
@@ -4546,23 +4990,8 @@ class AppController {
               No hay unidades reservadas actualmente.
             </div>
           ` : `
-            <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-              ${reservations.map(r => `
-                <div class="bg-slate-950/70 p-2.5 rounded-xl border border-purple-500/30 flex items-center justify-between gap-2 text-xs">
-                  <div class="min-w-0 flex-1">
-                    <div class="font-bold text-white truncate">👤 ${this._escapeHtml(r.customerName)} • ${r.quantity}x ${this._escapeHtml(r.productName)}</div>
-                    <div class="text-[10px] text-slate-400">
-                      ${this._escapeHtml(r.warehouseName)} • ${(r.quantity * (r.agreedUnitPrice || 12)).toFixed(2)}€
-                      ${r.notes ? ` • 📝 ${this._escapeHtml(r.notes)}` : ''}
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-1 flex-shrink-0">
-                    <button onclick="window.app.completeReservationQuick('${r.id}', 'Efectivo')" class="btn-pressable bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded text-[10px] font-bold">💵 Cobrar</button>
-                    <button onclick="window.app.completeReservationQuick('${r.id}', 'Tarjeta')" class="btn-pressable bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-1 rounded text-[10px] font-bold">💳</button>
-                    <button onclick="window.app.cancelReservationAction('${r.id}')" class="btn-pressable text-rose-400 px-1.5 py-1 text-xs font-bold">✕</button>
-                  </div>
-                </div>
-              `).join('')}
+            <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
+              ${this._groupReservationsByCustomer(reservations).map(g => this._buildGroupedReservationCardHtml(g, { compact: true, refreshModal: false })).join('')}
             </div>
           `}
         </div>

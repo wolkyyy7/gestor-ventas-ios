@@ -12,7 +12,7 @@
  * - Proporciona reversión atómica de transacciones erróneas devolviendo el stock a su almacén
  */
 
-import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.5';
+import { MAIN_WAREHOUSE_ID } from './AgentStorage.js?v=5.6';
 
 export class AgentSales {
   /**
@@ -152,6 +152,19 @@ export class AgentSales {
 
     const nowIso = new Date().toISOString();
 
+    let resolvedBuyerName = cleanBuyerName;
+    if (normalizedPaymentStatus === 'pending' && cleanBuyerName) {
+      const targetKey = this._normalizeCustomerKey(cleanBuyerName);
+      const existingLedgerSale = (allSales || []).find(
+        s => (s.paymentStatus === 'pending' || s.paymentStatus === 'settled') &&
+          this._normalizeCustomerKey(s.buyerName) === targetKey &&
+          String(s.buyerName || '').trim()
+      );
+      if (existingLedgerSale) {
+        resolvedBuyerName = String(existingLedgerSale.buyerName).trim();
+      }
+    }
+
     // 5. Paso atómico B: Crear el registro de la venta
     const saleRecord = {
       id: 'sale_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -175,7 +188,7 @@ export class AgentSales {
       paymentMethod,
       paymentStatus: normalizedPaymentStatus,
       paidAt: normalizedPaymentStatus === 'paid' ? nowIso : null,
-      buyerName: cleanBuyerName,
+      buyerName: resolvedBuyerName,
       notes: (notes || '').trim(),
       reservationId: reservationId || null,
       orderId: targetOrder ? targetOrder.id : null,
@@ -201,15 +214,15 @@ export class AgentSales {
     }
 
     let finalSaleRecord = saleRecord;
-    if (normalizedPaymentStatus === 'pending' && cleanBuyerName) {
-      await this.reconcileCustomerLedger(cleanBuyerName);
+    if (normalizedPaymentStatus === 'pending' && resolvedBuyerName) {
+      await this.reconcileCustomerLedger(resolvedBuyerName);
       finalSaleRecord = (await this.storage.getAllSales()).find(s => s.id === saleRecord.id) || saleRecord;
     }
 
     const statusBadge = finalSaleRecord.paymentStatus === 'pending'
-      ? `⏳ PENDIENTE DE COBRO (${cleanBuyerName})`
+      ? `⏳ PENDIENTE DE COBRO (${resolvedBuyerName})`
       : (finalSaleRecord.paymentStatus === 'settled'
-        ? `✅ Saldado con crédito previo (${cleanBuyerName})`
+        ? `✅ Saldado con crédito previo (${resolvedBuyerName})`
         : `✅ Cobrado (${paymentMethod})`);
 
     return {

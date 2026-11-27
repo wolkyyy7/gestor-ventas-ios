@@ -34,7 +34,7 @@
   </script>
 
   <!-- Estilos Mobile-First y Cupertino iOS 18 Glassmorphism -->
-  <link rel="stylesheet" href="css/app.css?v=5.5">
+  <link rel="stylesheet" href="css/app.css?v=5.6">
 </head>
 <body class="bg-slate-950 text-slate-100">
 
@@ -262,14 +262,21 @@
                 <label id="labelSaleBuyerInput" class="text-[10px] uppercase tracking-wider text-slate-300 font-semibold block mb-1">
                   👤 Cliente / Comprador
                 </label>
+                <select
+                  id="modalSaleExistingCustomerSelect"
+                  onchange="window.app.onSaleExistingCustomerSelect(this.value)"
+                  class="w-full bg-slate-900/90 text-white px-3 py-2 rounded-xl border border-amber-500/35 text-xs font-medium mb-1.5 focus:outline-none focus:border-amber-400 hidden"
+                ></select>
                 <input 
                   type="text" 
                   id="modalSaleBuyerInput" 
                   list="existingCustomersDatalist"
+                  oninput="window.app.onSaleBuyerInputChange()"
                   placeholder="Ej: David, Ana..." 
                   class="w-full bg-white/10 text-white px-3 py-2 rounded-xl border border-white/10 text-xs focus:outline-none focus:border-white/30"
                 />
                 <datalist id="existingCustomersDatalist"></datalist>
+                <div id="modalSaleCustomerPendingHint" class="text-[10px] text-amber-300 font-semibold mt-1 hidden"></div>
               </div>
 
               <div>
@@ -719,13 +726,21 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
               <label class="text-xs text-slate-300 font-bold block mb-1">👤 Nombre del Cliente *</label>
+              <select
+                id="resModalExistingCustomerSelect"
+                onchange="window.app.onResExistingCustomerSelect(this.value)"
+                class="w-full bg-slate-900/90 text-white px-3 py-2 rounded-xl border border-purple-500/40 text-xs font-medium mb-1.5 focus:outline-none focus:border-purple-400 hidden"
+              ></select>
               <input 
                 type="text" 
                 id="resModalCustomerName" 
+                list="existingCustomersDatalist"
                 required 
+                oninput="window.app.onResCustomerInputChange()"
                 placeholder="Ej: Sergio, Laura..." 
                 class="w-full bg-slate-800 text-white px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:border-purple-500"
               />
+              <div id="resModalCustomerPendingHint" class="text-[10px] text-purple-300 font-semibold mt-1 hidden"></div>
             </div>
 
             <div>
@@ -755,7 +770,7 @@
               </div>
               <div class="flex items-center justify-between gap-1">
                 <button type="button" onclick="window.app.stepResModalQty(-1)" class="btn-pressable w-8 h-8 rounded-lg bg-slate-800 text-white font-bold">-</button>
-                <input type="number" id="resModalQtyInput" value="1" min="1" class="w-12 text-center text-base font-black text-white bg-transparent border-0 focus:outline-none"/>
+                <input type="number" id="resModalQtyInput" value="1" min="1" oninput="window.app._updateResCustomerPendingHint()" class="w-12 text-center text-base font-black text-white bg-transparent border-0 focus:outline-none"/>
                 <button type="button" onclick="window.app.stepResModalQty(1)" class="btn-pressable w-8 h-8 rounded-lg bg-slate-800 text-white font-bold">+</button>
               </div>
             </div>
@@ -861,6 +876,6 @@
   <!-- SDK oficial de Supabase para Realtime + PostgreSQL en la nube -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- Inicialización modular mediante ES Modules -->
-  <script type="module" src="js/app.js?v=5.5"></script>
+  <script type="module" src="js/app.js?v=5.6"></script>
 </body>
 </html>
